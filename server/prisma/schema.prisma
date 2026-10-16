@@ -1,0 +1,580 @@
+// Prisma Schema for ROLLZ Restaurant POS
+// Prisma 6.x configuration
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+enum SelectionType {
+  SINGLE
+  MULTIPLE
+}
+
+enum OrderType {
+  TAKEAWAY
+  DINE_IN
+}
+
+enum OrderStatus {
+  DRAFT
+  HELD
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
+
+enum PrintDestination {
+  CUSTOMER_RECEIPT
+  KITCHEN
+}
+
+enum PrintStatus {
+  PENDING
+  PRINTING
+  PRINTED
+  FAILED
+}
+
+model SystemHealth {
+  id        String   @id @default(uuid())
+  version   String   @default("0.1.0")
+  status    String   @default("healthy")
+  checkedAt DateTime @default(now())
+
+  @@map("system_health")
+}
+
+model Branch {
+  id               String            @id @default(uuid())
+  name             String
+  code             String            @unique
+  address          String?
+  phone            String?
+  gstin            String?           @default("32AAAAA0000A1Z5")
+  taxMode          String            @default("GST")
+  receiptHeader    String?           @default("WELCOME TO ROLLZ\nFresh • Crispy • Handcrafted")
+  receiptFooter    String?           @default("Thank you for dining with us!\nVisit again soon.")
+  customerPrinterType        String?   @default("MOCK") // "MOCK" | "NETWORK_TCP"
+  customerPrinterAddress     String?   // e.g. "192.168.1.200:9100"
+  customerPrinterPaperWidth  Int       @default(80)    // 80 or 58 mm
+  customerPrinterEnabled     Boolean   @default(true)
+  kitchenPrinterType         String?   @default("MOCK") // "MOCK" | "NETWORK_TCP"
+  kitchenPrinterAddress      String?   // e.g. "192.168.1.201:9100"
+  kitchenPrinterPaperWidth   Int       @default(80)    // 80 or 58 mm
+  kitchenPrinterEnabled      Boolean   @default(true)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  users            User[]
+  categories       Category[]
+  menuItems        MenuItem[]
+  modifierGroups   ModifierGroup[]
+  orders           Order[]
+  payments         Payment[]
+  invoices         Invoice[]
+  printJobs        PrintJob[]
+  invoiceSequences InvoiceSequence[]
+  ingredients               Ingredient[]
+  stockMovements            StockMovement[]
+  stockIntakes              StockIntake[]
+  recipeIngredients         RecipeIngredient[]
+  modifierRecipeIngredients ModifierRecipeIngredient[]
+  cashierShifts             CashierShift[]
+  cashMovements             CashMovement[]
+
+  @@map("branches")
+}
+
+model BackupRecord {
+  id         String   @id @default(uuid())
+  filename   String
+  filepath   String
+  sizeBytes  Int      @default(0)
+  status     String   @default("SUCCESS") // "SUCCESS" | "FAILED"
+  error      String?
+  durationMs Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@map("backup_records")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  branchId          String
+  branch            Branch    @relation(fields: [branchId], references: [id])
+  username          String    @unique
+  displayName       String
+  passwordHash      String
+  role              Role      @default(CASHIER)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  orders            Order[]
+  confirmedPayments Payment[]
+  invoices          Invoice[]
+  recordedIntakes   StockIntake[]
+  stockMovements    StockMovement[]
+  cashierShifts     CashierShift[]    @relation("ShiftCashier")
+  closedShifts      CashierShift[]    @relation("ShiftClosedBy")
+  cashMovements     CashMovement[]
+
+  @@index([branchId, isActive])
+  @@map("users")
+}
+
+model Category {
+  id           String     @id @default(uuid())
+  branchId     String
+  branch       Branch     @relation(fields: [branchId], references: [id])
+  name         String
+  slug         String
+  description  String?
+  imagePath    String?
+  displayOrder Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  menuItems    MenuItem[]
+
+  @@unique([branchId, name])
+  @@index([branchId, isActive, displayOrder])
+  @@map("categories")
+}
+
+model MenuItem {
+  id             String                  @id @default(uuid())
+  branchId       String
+  branch         Branch                  @relation(fields: [branchId], references: [id])
+  categoryId     String
+  category       Category                @relation(fields: [categoryId], references: [id])
+  name           String
+  description    String?
+  itemCode       String?
+  imagePath      String?
+  basePrice      Int                     // Integer paise (e.g. 15000 = ₹150.00)
+  taxCategory    String                  @default("STANDARD")
+  isAvailable    Boolean                 @default(true) // Currently orderable in POS
+  isActive       Boolean                 @default(true) // Maintained in menu catalog
+  displayOrder   Int                     @default(0)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  modifierGroups MenuItemModifierGroup[]
+  orderItems     OrderItem[]
+  recipeIngredients RecipeIngredient[]
+
+  @@index([branchId, categoryId, isActive, isAvailable])
+  @@index([name])
+  @@map("menu_items")
+}
+
+model ModifierGroup {
+  id            String                  @id @default(uuid())
+  branchId      String
+  branch        Branch                  @relation(fields: [branchId], references: [id])
+  name          String
+  description   String?
+  selectionType SelectionType           @default(SINGLE)
+  isRequired    Boolean                 @default(false)
+  minSelections Int                     @default(0)
+  maxSelections Int                     @default(1)
+  isActive      Boolean                 @default(true)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  options       ModifierOption[]
+  menuItems     MenuItemModifierGroup[]
+
+  @@index([branchId, isActive])
+  @@map("modifier_groups")
+}
+
+model ModifierOption {
+  id              String        @id @default(uuid())
+  modifierGroupId String
+  modifierGroup   ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  extraPrice      Int           @default(0) // Integer paise (e.g. 2000 = ₹20.00)
+  isAvailable     Boolean       @default(true)
+  isActive        Boolean       @default(true)
+  displayOrder    Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  recipeIngredients ModifierRecipeIngredient[]
+
+  @@index([modifierGroupId, isActive, displayOrder])
+  @@map("modifier_options")
+}
+
+model MenuItemModifierGroup {
+  id              String        @id @default(uuid())
+  menuItemId      String
+  menuItem        MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  modifierGroupId String
+  modifierGroup   ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  displayOrder    Int           @default(0)
+  isEnabled       Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([menuItemId, modifierGroupId])
+  @@index([menuItemId, displayOrder])
+  @@map("menu_item_modifier_groups")
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  branchId       String
+  branch         Branch      @relation(fields: [branchId], references: [id])
+  orderNumber    String      // Sequential daily or unique branch order number
+  orderType      OrderType   @default(TAKEAWAY)
+  status         OrderStatus @default(DRAFT)
+  cashierId      String
+  cashier        User        @relation(fields: [cashierId], references: [id])
+  tableNumber    String?
+  customerName   String?
+  customerPhone  String?
+  notes          String?
+  subtotal       Int         // Integer paise
+  discountTotal  Int         @default(0) // Integer paise
+  discountType   String?     // "FIXED" | "PERCENTAGE"
+  discountValue  Int         @default(0) // Paise if FIXED, basis points if PERCENTAGE
+  discountReason String?
+  taxTotal       Int         @default(0) // Integer paise
+  taxRate        Int         @default(500) // Tax rate basis points e.g. 500 = 5.00% GST
+  grandTotal     Int         // Integer paise (subtotal - discountTotal + taxTotal)
+  items          OrderItem[]
+  payments       Payment[]
+  invoice        Invoice?
+  printJobs      PrintJob[]
+  stockMovements StockMovement[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([branchId, orderNumber])
+  @@index([branchId, status, createdAt])
+  @@index([branchId, orderType])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                String    @id @default(uuid())
+  orderId           String
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId        String?
+  menuItem          MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  itemNameSnapshot  String
+  basePriceSnapshot Int       // Integer paise
+  quantity          Int       @default(1)
+  modifierSnapshot  Json?     // Array of chosen modifiers with name and price
+  kitchenNotes      String?
+  unitPrice         Int       // basePriceSnapshot + sum(modifier extraPrices) in paise
+  lineSubtotal      Int       // unitPrice * quantity in paise
+  discountAmount    Int       @default(0) // in paise
+  taxAmount         Int       @default(0) // in paise
+  lineTotal         Int       // lineSubtotal - discountAmount + taxAmount in paise
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  orderId           String
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branchId          String
+  branch            Branch        @relation(fields: [branchId], references: [id])
+  method            PaymentMethod
+  amount            Int           // Integer paise
+  status            PaymentStatus @default(CONFIRMED)
+  externalReference String?       // UPI transaction ref or Card auth code
+  confirmationType  String        @default("MANUAL_CASHIER") // "MANUAL_CASHIER" | "TERMINAL_VERIFIED"
+  confirmedByUserId String?
+  confirmedBy       User?         @relation(fields: [confirmedByUserId], references: [id])
+  confirmedAt       DateTime?     @default(now())
+  tenderedAmount    Int?          // Integer paise (for cash payment)
+  changeDue         Int?          // Integer paise (for cash payment)
+  idempotencyKey    String?       @unique
+  shiftId           String?
+  shift             CashierShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([orderId, status])
+  @@index([branchId, method, createdAt])
+  @@index([shiftId])
+  @@map("payments")
+}
+
+model Invoice {
+  id            String      @id @default(uuid())
+  invoiceNumber String      @unique // e.g. INV-20261013-0001
+  orderId       String      @unique
+  order         Order       @relation(fields: [orderId], references: [id])
+  branchId      String
+  branch        Branch      @relation(fields: [branchId], references: [id])
+  cashierId     String
+  cashier       User        @relation(fields: [cashierId], references: [id])
+  subtotal      Int         // Integer paise
+  discountTotal Int         @default(0) // Integer paise
+  taxTotal      Int         // Integer paise
+  grandTotal    Int         // Integer paise
+  status        String      @default("FINALIZED") // "FINALIZED", "CANCELLED"
+  snapshot      Json        // Immutable frozen complete billing snapshot
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  printJobs     PrintJob[]
+  stockMovements StockMovement[]
+
+  @@index([branchId, createdAt])
+  @@index([invoiceNumber])
+  @@map("invoices")
+}
+
+model InvoiceSequence {
+  id        String   @id @default(uuid())
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  dateKey   String   // e.g. "20261013"
+  lastSeq   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([branchId, dateKey])
+  @@map("invoice_sequences")
+}
+
+model PrintJob {
+  id              String           @id @default(uuid())
+  orderId         String
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoiceId       String?
+  invoice         Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  branchId        String
+  branch          Branch           @relation(fields: [branchId], references: [id])
+  destination     PrintDestination
+  status          PrintStatus      @default(PENDING)
+  attemptCount    Int              @default(0)
+  payloadSnapshot Json             // Formatted ticket and structured snapshot
+  lastError       String?
+  isReprint       Boolean          @default(false)
+  reprintReason   String?
+  printedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([branchId, status, createdAt])
+  @@index([orderId, destination])
+  @@map("print_jobs")
+}
+
+enum StockMovementType {
+  STOCK_IN
+  SALE_DEDUCTION
+  WASTAGE
+  STOCK_ADJUSTMENT
+  REVERSAL
+}
+
+model Ingredient {
+  id                         String                     @id @default(uuid())
+  branchId                   String
+  branch                     Branch                     @relation(fields: [branchId], references: [id])
+  name                       String
+  sku                        String                     // Internal code/SKU, unique within branch
+  category                   String                     @default("General") // "Dairy", "Meat", "Produce", "Packaging", "Bakery", "Sauces"
+  description                String?
+  unit                       String                     // "g", "kg", "ml", "L", "piece", "packet", "bottle", "box"
+  currentStock               Float                      @default(0)
+  minThreshold               Float                      @default(0)
+  costPerUnit                Int                        @default(0) // Configured unit cost in integer paise
+  isActive                   Boolean                    @default(true)
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
+  stockMovements             StockMovement[]
+  stockIntakes               StockIntake[]
+  recipeIngredients          RecipeIngredient[]
+  modifierRecipeIngredients    ModifierRecipeIngredient[]
+
+  @@unique([branchId, sku])
+  @@index([branchId, isActive, category])
+  @@map("ingredients")
+}
+
+model RecipeIngredient {
+  id           String     @id @default(uuid())
+  branchId     String
+  branch       Branch     @relation(fields: [branchId], references: [id])
+  menuItemId   String
+  menuItem     MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  quantity     Float      // Required quantity per menu item
+  unit         String     // Unit used in recipe (e.g. "g", "ml", "piece")
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([menuItemId, ingredientId])
+  @@index([branchId, menuItemId])
+  @@index([ingredientId])
+  @@map("recipe_ingredients")
+}
+
+model ModifierRecipeIngredient {
+  id               String         @id @default(uuid())
+  branchId         String
+  branch           Branch         @relation(fields: [branchId], references: [id])
+  modifierOptionId String
+  modifierOption   ModifierOption @relation(fields: [modifierOptionId], references: [id], onDelete: Cascade)
+  ingredientId     String
+  ingredient       Ingredient     @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  quantity         Float          // Required quantity per modifier option
+  unit             String         // Unit used in recipe
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([modifierOptionId, ingredientId])
+  @@index([branchId, modifierOptionId])
+  @@index([ingredientId])
+  @@map("modifier_recipe_ingredients")
+}
+
+model StockIntake {
+  id             String     @id @default(uuid())
+  branchId       String
+  branch         Branch     @relation(fields: [branchId], references: [id])
+  ingredientId   String
+  ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  quantity       Float      // Quantity received in intake unit
+  unit           String     // Measurement unit
+  purchaseCost   Int        // Total purchase cost in integer paise
+  supplierName   String?
+  invoiceRef     String?    // Supplier invoice number
+  receivedDate   DateTime   @default(now())
+  notes          String?
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  idempotencyKey String?    @unique
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([branchId, receivedDate])
+  @@index([ingredientId])
+  @@map("stock_intakes")
+}
+
+model StockMovement {
+  id           String            @id @default(uuid())
+  branchId     String
+  branch       Branch            @relation(fields: [branchId], references: [id])
+  ingredientId String
+  ingredient   Ingredient        @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  type         StockMovementType
+  quantity     Float             // Absolute quantity changed in ingredient unit
+  unit         String            // Ingredient unit
+  stockBefore  Float
+  stockAfter   Float
+  orderId      String?
+  order        Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  invoiceId    String?
+  invoice      Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  userId       String?
+  user         User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reason       String?           // E.g., "SPOILED", "COUNT_CORRECTION", "SALE_DEDUCTION"
+  notes        String?
+  createdAt    DateTime          @default(now())
+
+  @@index([branchId, type, createdAt])
+  @@index([ingredientId, createdAt])
+  @@index([orderId])
+  @@map("stock_movements")
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+enum CashMovementType {
+  CASH_IN
+  CASH_OUT
+}
+
+model CashierShift {
+  id                String           @id @default(uuid())
+  branchId          String
+  branch            Branch           @relation(fields: [branchId], references: [id])
+  shiftNumber       String           // e.g. "SFT-20261013-0001"
+  cashierId         String
+  cashier           User             @relation("ShiftCashier", fields: [cashierId], references: [id])
+  openedAt          DateTime         @default(now())
+  openingCash       Int              // Integer paise (e.g. 200000 = ₹2,000.00)
+  closedAt          DateTime?
+  status            ShiftStatus      @default(OPEN)
+  expectedCash      Int?             // Server-calculated expected drawer balance in paise
+  actualCash        Int?             // Cashier-counted physical cash in paise
+  cashDifference    Int?             // actualCash - expectedCash in paise (+ surplus, - shortage)
+  closingNotes      String?
+  closedByUserId    String?
+  closedByUser      User?            @relation("ShiftClosedBy", fields: [closedByUserId], references: [id])
+  approvedByUserId  String?          // Manager ID if discrepancy requires approval
+  summarySnapshot   Json?            // Frozen financial summary snapshot upon closure
+  idempotencyKey    String?          @unique
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  payments          Payment[]
+  cashMovements     CashMovement[]
+
+  @@unique([branchId, shiftNumber])
+  @@index([branchId, status, openedAt])
+  @@index([cashierId, status])
+  @@map("cashier_shifts")
+}
+
+model CashMovement {
+  id             String           @id @default(uuid())
+  branchId       String
+  branch         Branch           @relation(fields: [branchId], references: [id])
+  shiftId        String
+  shift          CashierShift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  type           CashMovementType // CASH_IN or CASH_OUT
+  amount         Int              // Integer paise (must be > 0)
+  reason         String           // E.g. "ADD_FLOAT", "PETTY_CASH_EXPENSE", etc.
+  notes          String?
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  idempotencyKey String?          @unique
+  createdAt      DateTime         @default(now())
+
+  @@index([shiftId, type])
+  @@index([branchId, createdAt])
+  @@map("cash_movements")
+}
+

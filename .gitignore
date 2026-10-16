@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Production builds
+dist/
+*/dist/
+build/
+*/build/
+coverage/
+*/coverage/
+
+# Environment files and credentials
+.env
+.env.*
+*/.env
+*/.env.*
+!.env.example
+!*/.env.example
+
+# Logs and runtime artifacts
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Database backups & uploaded media
+server/backups/*.dump
+!server/backups/.gitkeep
+server/uploads/menu-items/*
+!server/uploads/menu-items/.gitkeep

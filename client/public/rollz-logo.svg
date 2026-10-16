@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" width="400" height="120">
+  <defs>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE" />
+      <stop offset="100%" stop-color="#00C2CB" />
+    </linearGradient>
+    <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF4B4B" />
+      <stop offset="100%" stop-color="#D90429" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background container optional or transparent -->
+  <rect width="100%" height="100%" fill="none"/>
+
+  <!-- Logo Mark Icon: Stylized Roll & Fire Emblem -->
+  <g transform="translate(16, 12)">
+    <!-- Outer flame/roll swirl -->
+    <circle cx="48" cy="48" r="44" fill="#0B132B" stroke="#00C2CB" stroke-width="3"/>
+    
+    <!-- Inner roll wrap layers -->
+    <path d="M 28 58 C 28 40, 42 26, 60 26 C 74 26, 82 34, 82 46 C 82 58, 72 68, 56 68 C 44 68, 38 60, 38 52 C 38 46, 44 42, 50 42 C 56 42, 58 46, 56 50" 
+          fill="none" stroke="url(#cyanGrad)" stroke-width="6" stroke-linecap="round"/>
+    
+    <!-- Accent flame spark in red -->
+    <path d="M 52 20 C 58 12, 68 8, 70 2 C 72 8, 78 14, 76 22 C 74 18, 70 16, 66 18 C 62 20, 60 22, 52 20 Z" 
+          fill="url(#redGrad)"/>
+
+    <circle cx="50" cy="50" r="5" fill="url(#redGrad)" />
+  </g>
+
+  <!-- Wordmark: ROLLZ -->
+  <g transform="translate(125, 20)">
+    <!-- R -->
+    <text x="0" y="66" font-family="'Inter', 'Montserrat', 'Segoe UI', sans-serif" font-weight="900" font-size="64" letter-spacing="2" fill="url(#cyanGrad)" filter="url(#shadow)">ROLLZ</text>
+    
+    <!-- Subtitle: RESTAURANT POS -->
+    <text x="2" y="86" font-family="'Inter', 'Segoe UI', sans-serif" font-weight="700" font-size="14" letter-spacing="6" fill="#FF4B4B">RESTAURANT POS</text>
+  </g>
+</svg>

@@ -1,0 +1,20 @@
+{
+  "name": "rollz-restaurant-pos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ROLLZ Restaurant POS - Local-First Point of Sale and Kitchen Management System",
+  "scripts": {
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "typecheck:server": "npm --prefix server run typecheck",
+    "typecheck:client": "npm --prefix client run typecheck",
+    "typecheck": "npm run typecheck:server && npm run typecheck:client",
+    "test:server": "npm --prefix server run test",
+    "test": "npm run test:server",
+    "build:server": "npm --prefix server run build",
+    "build:client": "npm --prefix client run build",
+    "build": "npm run build:server && npm run build:client",
+    "db:push": "npm --prefix server run prisma:push",
+    "db:generate": "npm --prefix server run prisma:generate"
+  }
+}
