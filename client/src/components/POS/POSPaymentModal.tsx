@@ -11,9 +11,16 @@ import {
   Plus,
   Trash2,
   ShieldCheck,
+  Copy,
+  Check,
+  Edit2,
+  Maximize2,
+  Save,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { formatPaise } from "../../utils/currency";
 import { paymentsApi, PaymentTender, PaymentResultResponse } from "../../api/payments.api";
+import { useAuth } from "../../context/AuthContext";
 
 interface POSPaymentModalProps {
   isOpen: boolean;
@@ -36,6 +43,7 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
   itemCount,
   onPaymentSuccess,
 }) => {
+  const { branch } = useAuth();
   const [activeTab, setActiveTab] = useState<"CASH" | "UPI" | "CARD" | "SPLIT">("CASH");
 
   // Cash state (in rupees for input)
@@ -43,7 +51,19 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
     (grandTotalPaise / 100).toFixed(0)
   );
 
-  // UPI state
+  // UPI state & Dynamic QR Code configuration
+  const [modalUpiId, setModalUpiId] = useState<string>(() => {
+    return localStorage.getItem("rollz_pos_upi_id") || branch?.upiId || "";
+  });
+  const [modalUpiName, setModalUpiName] = useState<string>(() => {
+    return localStorage.getItem("rollz_pos_upi_payee_name") || branch?.upiPayeeName || branch?.name || "ROLLZ Fast Food";
+  });
+  const [isEditingUpi, setIsEditingUpi] = useState<boolean>(false);
+  const [tempUpiInput, setTempUpiInput] = useState<string>("");
+  const [tempUpiNameInput, setTempUpiNameInput] = useState<string>("");
+  const [isEnlargedQr, setIsEnlargedQr] = useState<boolean>(false);
+  const [hasCopiedUpi, setHasCopiedUpi] = useState<boolean>(false);
+  const [splitActiveQrTender, setSplitActiveQrTender] = useState<{ id: string; amountRupees: string } | null>(null);
   const [upiRef, setUpiRef] = useState("");
   const [isUpiVerified, setIsUpiVerified] = useState(false);
 
@@ -65,7 +85,7 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [idempotencyKey] = useState<string>(() => `IDEMP-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
 
-  // Initialize cash tendered when modal opens or total changes
+  // Initialize cash tendered and UPI state when modal opens or total changes
   useEffect(() => {
     if (isOpen) {
       setCashTenderedRupees((grandTotalPaise / 100).toString());
@@ -73,8 +93,50 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
       setIsSubmitting(false);
       setIsUpiVerified(false);
       setIsCardVerified(false);
+      setIsEnlargedQr(false);
+      setIsEditingUpi(false);
+      setSplitActiveQrTender(null);
+
+      const activeUpi = localStorage.getItem("rollz_pos_upi_id") || branch?.upiId || "";
+      const activeName = localStorage.getItem("rollz_pos_upi_payee_name") || branch?.upiPayeeName || branch?.name || "ROLLZ Fast Food";
+      setModalUpiId(activeUpi);
+      setModalUpiName(activeName);
+      setTempUpiInput(activeUpi);
+      setTempUpiNameInput(activeName);
     }
-  }, [isOpen, grandTotalPaise]);
+  }, [isOpen, grandTotalPaise, branch]);
+
+  const handleSaveUpiId = () => {
+    const cleanId = tempUpiInput.trim();
+    const cleanName = tempUpiNameInput.trim() || branch?.name || "ROLLZ Fast Food";
+    if (!cleanId) {
+      setErrorMessage("Please enter a valid UPI ID (e.g. shopname@okaxis or 9876543210@paytm)");
+      return;
+    }
+    setModalUpiId(cleanId);
+    setModalUpiName(cleanName);
+    localStorage.setItem("rollz_pos_upi_id", cleanId);
+    localStorage.setItem("rollz_pos_upi_payee_name", cleanName);
+    setIsEditingUpi(false);
+    setErrorMessage(null);
+  };
+
+  const upiAmountRupees = (grandTotalPaise / 100).toFixed(2);
+
+  const upiUri = useMemo(() => {
+    if (!modalUpiId.trim()) return "";
+    const cleanName = encodeURIComponent(modalUpiName.trim() || "ROLLZ");
+    const cleanNote = encodeURIComponent(`Order #${orderNumber}`);
+    return `upi://pay?pa=${modalUpiId.trim()}&pn=${cleanName}&am=${upiAmountRupees}&cu=INR&tn=${cleanNote}`;
+  }, [modalUpiId, modalUpiName, upiAmountRupees, orderNumber]);
+
+  const splitUpiUri = useMemo(() => {
+    if (!splitActiveQrTender || !modalUpiId.trim()) return "";
+    const amt = (parseFloat(splitActiveQrTender.amountRupees) || 0).toFixed(2);
+    const cleanName = encodeURIComponent(modalUpiName.trim() || "ROLLZ");
+    const cleanNote = encodeURIComponent(`Order #${orderNumber} Split`);
+    return `upi://pay?pa=${modalUpiId.trim()}&pn=${cleanName}&am=${amt}&cu=INR&tn=${cleanNote}`;
+  }, [splitActiveQrTender, modalUpiId, modalUpiName, orderNumber]);
 
   // Cash calculations
   const cashTenderedPaise = useMemo(() => {
@@ -403,17 +465,174 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
           {/* 2. UPI TAB */}
           {activeTab === "UPI" && (
             <div className="space-y-4">
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
-                <div className="flex items-center gap-2 text-blue-900 font-bold text-xs">
-                  <QrCode className="w-4 h-4 text-[#2563EB]" />
-                  <span>Manual Cashier UPI Verification</span>
-                </div>
-                <p className="text-xs text-blue-800">
-                  Customer should scan the restaurant UPI QR code and pay{" "}
-                  <strong>{formatPaise(grandTotalPaise)}</strong>. Verify notification on phone or soundbox before proceeding.
-                </p>
-              </div>
+              {/* If UPI ID is missing or cashier is editing it */}
+              {(!modalUpiId.trim() || isEditingUpi) ? (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                    <QrCode className="w-4 h-4 text-amber-600" />
+                    <span>{modalUpiId ? "Edit UPI Payment ID" : "Configure Restaurant UPI ID for Dynamic QR"}</span>
+                  </div>
+                  <p className="text-xs text-amber-800">
+                    Enter your UPI ID / VPA to immediately generate dynamic QR codes for this order and future orders.
+                  </p>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        UPI ID / VPA <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={tempUpiInput}
+                        onChange={(e) => setTempUpiInput(e.target.value)}
+                        placeholder="e.g. yourshop@okaxis or 9876543210@paytm"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Payee / Business Name
+                      </label>
+                      <input
+                        type="text"
+                        value={tempUpiNameInput}
+                        onChange={(e) => setTempUpiNameInput(e.target.value)}
+                        placeholder={branch?.name || "ROLLZ Fast Food"}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveUpiId}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save & Generate QR</span>
+                    </button>
+                    {modalUpiId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTempUpiInput(modalUpiId);
+                          setTempUpiNameInput(modalUpiName);
+                          setIsEditingUpi(false);
+                        }}
+                        className="px-3 py-2 text-slate-600 hover:text-slate-800 text-xs font-medium cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Dynamic QR Code Card */
+                <div className="p-4 bg-gradient-to-b from-blue-50/70 to-indigo-50/40 border border-blue-200 rounded-2xl space-y-4">
+                  {/* Banner / Info */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-blue-600 text-white rounded-xl shadow-xs">
+                        <QrCode className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-[#172033] flex items-center gap-2">
+                          <span>Dynamic UPI Payment QR</span>
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-md">
+                            ₹{upiAmountRupees}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5">
+                          <span className="font-mono font-medium">{modalUpiId}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(modalUpiId);
+                              setHasCopiedUpi(true);
+                              setTimeout(() => setHasCopiedUpi(false), 2000);
+                            }}
+                            className="text-blue-600 hover:text-blue-800 p-0.5 cursor-pointer"
+                            title="Copy UPI ID"
+                          >
+                            {hasCopiedUpi ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                          <span>•</span>
+                          <span className="text-slate-500 font-medium">{modalUpiName}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTempUpiInput(modalUpiId);
+                          setTempUpiNameInput(modalUpiName);
+                          setIsEditingUpi(true);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 rounded-lg text-xs font-semibold cursor-pointer shadow-xs hover:border-blue-300 transition-colors"
+                        title="Change UPI ID"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Change</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEnlargedQr(true)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                        title="Show full screen for customer to scan"
+                      >
+                        <Maximize2 className="w-3 h-3" />
+                        <span>Customer View</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* QR Presentation Box */}
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-5 bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
+                    {/* SVG QR Code */}
+                    <div
+                      onClick={() => setIsEnlargedQr(true)}
+                      className="p-2.5 bg-white rounded-xl border border-slate-200 shadow-xs cursor-pointer hover:border-blue-400 hover:shadow-md transition-all group relative shrink-0"
+                      title="Click to enlarge QR for customer"
+                    >
+                      <QRCodeSVG
+                        value={upiUri}
+                        size={150}
+                        level="M"
+                        includeMargin={false}
+                      />
+                      <div className="absolute inset-0 bg-blue-900/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center backdrop-blur-[1px]">
+                        <span className="bg-white/95 text-blue-900 text-[10px] font-bold px-2 py-1 rounded-md shadow-sm flex items-center gap-1">
+                          <Maximize2 className="w-3 h-3" /> Enlarge
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Instructions & Supported Apps */}
+                    <div className="flex-1 space-y-2.5 text-center sm:text-left">
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">Scan & Pay Exact Bill</span>
+                        <p className="text-xs text-slate-700 font-medium">
+                          Customer scans with Google Pay, PhonePe, Paytm, or BHIM. The amount of <strong>{formatPaise(grandTotalPaise)}</strong> is filled in automatically.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 pt-1">
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded border border-blue-200">GPay</span>
+                        <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded border border-purple-200">PhonePe</span>
+                        <span className="px-2 py-0.5 bg-sky-50 text-sky-700 text-[10px] font-bold rounded border border-sky-200">Paytm</span>
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200">BHIM UPI</span>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-medium rounded border border-slate-200">Any Bank</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* UTR Input */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   UPI Transaction / UTR Reference (Optional)
@@ -427,6 +646,7 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                 />
               </div>
 
+              {/* Cashier confirmation checkbox */}
               <label className="flex items-start gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100/60 transition-colors">
                 <input
                   type="checkbox"
@@ -435,8 +655,8 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                   className="mt-0.5 rounded text-[#2563EB] focus:ring-[#2563EB]"
                 />
                 <span className="text-xs text-slate-700 font-medium">
-                  I confirm that the customer has completed the payment of{" "}
-                  <strong>{formatPaise(grandTotalPaise)}</strong> on the restaurant UPI soundbox / account.
+                  I confirm that customer has completed payment of{" "}
+                  <strong>{formatPaise(grandTotalPaise)}</strong> on restaurant UPI soundbox / account.
                 </span>
               </label>
             </div>
@@ -537,6 +757,18 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                       />
                     </div>
 
+                    {t.method === "UPI" && parseFloat(t.amountRupees) > 0 && modalUpiId.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setSplitActiveQrTender(t)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold cursor-pointer transition-colors shrink-0"
+                        title="Show dynamic QR for this split portion"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>QR (₹{t.amountRupees})</span>
+                      </button>
+                    )}
+
                     {splitTenders.length > 1 && (
                       <button
                         type="button"
@@ -615,6 +847,106 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Fullscreen / Enlarged Customer-Facing UPI QR View */}
+      {isEnlargedQr && (
+        <div className="fixed inset-0 z-60 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-sm w-full p-6 text-center space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="text-left">
+                <h3 className="text-sm font-black text-[#172033]">Scan & Pay via UPI</h3>
+                <p className="text-[11px] text-slate-500">Order #{orderNumber} • {itemCount} items</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEnlargedQr(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Amount Banner */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 py-3 px-4 rounded-2xl">
+              <span className="text-xs text-blue-700 font-bold block uppercase tracking-wider">Total Payable</span>
+              <span className="text-3xl font-black text-[#172033]">{formatPaise(grandTotalPaise)}</span>
+            </div>
+
+            {/* Large Dynamic QR */}
+            <div className="flex justify-center p-5 bg-white rounded-2xl border border-slate-200 shadow-inner">
+              <QRCodeSVG
+                value={upiUri}
+                size={220}
+                level="M"
+              />
+            </div>
+
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold text-[#172033]">{modalUpiName}</div>
+              <div className="text-[11px] font-mono text-slate-500">{modalUpiId}</div>
+            </div>
+
+            <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-500 font-bold">
+              <span>Google Pay</span> • <span>PhonePe</span> • <span>Paytm</span> • <span>BHIM</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsEnlargedQr(false)}
+              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            >
+              Done / Back to Checkout
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Split Portion QR Popup */}
+      {splitActiveQrTender && modalUpiId.trim() && (
+        <div className="fixed inset-0 z-60 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-sm w-full p-6 text-center space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="text-left">
+                <h3 className="text-sm font-black text-[#172033]">Split Portion UPI QR</h3>
+                <p className="text-[11px] text-slate-500">Order #{orderNumber} (UPI Split)</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSplitActiveQrTender(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 py-3 px-4 rounded-2xl">
+              <span className="text-xs text-blue-700 font-bold block uppercase tracking-wider">UPI Split Portion</span>
+              <span className="text-3xl font-black text-[#172033]">₹{(parseFloat(splitActiveQrTender.amountRupees) || 0).toFixed(2)}</span>
+            </div>
+
+            <div className="flex justify-center p-5 bg-white rounded-2xl border border-slate-200 shadow-inner">
+              <QRCodeSVG
+                value={splitUpiUri}
+                size={200}
+                level="M"
+              />
+            </div>
+
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold text-[#172033]">{modalUpiName}</div>
+              <div className="text-[11px] font-mono text-slate-500">{modalUpiId}</div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSplitActiveQrTender(null)}
+              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            >
+              Close Split QR
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -77,6 +77,8 @@ model Branch {
   taxMode          String            @default("GST")
   receiptHeader    String?           @default("WELCOME TO ROLLZ\nFresh • Crispy • Handcrafted")
   receiptFooter    String?           @default("Thank you for dining with us!\nVisit again soon.")
+  upiId            String?           // e.g. "rollzpos@okaxis" or merchant UPI ID
+  upiPayeeName     String?           // e.g. "ROLLZ Fast Food"
   customerPrinterType        String?   @default("MOCK") // "MOCK" | "NETWORK_TCP"
   customerPrinterAddress     String?   // e.g. "192.168.1.200:9100"
   customerPrinterPaperWidth  Int       @default(80)    // 80 or 58 mm

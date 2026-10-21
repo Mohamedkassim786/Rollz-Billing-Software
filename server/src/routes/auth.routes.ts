@@ -175,6 +175,8 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
       code: user.branch.code,
       taxMode: user.branch.taxMode || "GST",
       gstin: user.branch.gstin || null,
+      upiId: user.branch.upiId || null,
+      upiPayeeName: user.branch.upiPayeeName || null,
     },
     token,
   });
@@ -211,6 +213,8 @@ authRouter.get("/me", authenticate, async (req: AuthenticatedRequest, res: Respo
       code: user.branch.code,
       taxMode: user.branch.taxMode || "GST",
       gstin: user.branch.gstin || null,
+      upiId: user.branch.upiId || null,
+      upiPayeeName: user.branch.upiPayeeName || null,
     },
   });
 });

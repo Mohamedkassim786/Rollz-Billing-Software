@@ -14,7 +14,12 @@ import {
   HardDrive,
   Network,
   RotateCcw,
+  QrCode,
+  Smartphone,
+  Copy,
+  Check,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../context/AuthContext";
 import { settingsApi, BackupItem, HostInfo } from "../api/settings.api";
 
@@ -32,6 +37,12 @@ export const SettingsPage: React.FC = () => {
   const [defaultTaxRate, setDefaultTaxRate] = useState<number>(5);
   const [receiptHeader, setReceiptHeader] = useState("");
   const [receiptFooter, setReceiptFooter] = useState("");
+
+  // UPI Digital Payments Settings
+  const [upiId, setUpiId] = useState("");
+  const [upiPayeeName, setUpiPayeeName] = useState("");
+  const [testAmountRupees, setTestAmountRupees] = useState("100");
+  const [hasCopiedUpi, setHasCopiedUpi] = useState(false);
 
   // Customer Printer Configuration
   const [customerPrinterType, setCustomerPrinterType] = useState("MOCK");
@@ -78,6 +89,10 @@ export const SettingsPage: React.FC = () => {
       setDefaultTaxRate(b.defaultTaxRate ?? 5);
       setReceiptHeader(b.receiptHeader || "WELCOME TO ROLLZ\nFresh • Crispy • Handcrafted");
       setReceiptFooter(b.receiptFooter || "Thank you for dining with us!\nVisit again soon.");
+      const savedUpiId = b.upiId || localStorage.getItem("rollz_pos_upi_id") || "";
+      const savedUpiName = b.upiPayeeName || localStorage.getItem("rollz_pos_upi_payee_name") || b.name || "ROLLZ Fast Food";
+      setUpiId(savedUpiId);
+      setUpiPayeeName(savedUpiName);
 
       setCustomerPrinterType(b.customerPrinterType || "MOCK");
       setCustomerPrinterAddress(b.customerPrinterAddress || "192.168.1.200:9100");
@@ -107,6 +122,9 @@ export const SettingsPage: React.FC = () => {
     e.preventDefault();
     setIsSaving(true);
     try {
+      const trimmedUpiId = upiId.trim();
+      const trimmedUpiName = upiPayeeName.trim() || restaurantName;
+
       await settingsApi.updateSettings({
         name: restaurantName,
         address,
@@ -117,6 +135,8 @@ export const SettingsPage: React.FC = () => {
         defaultTaxRate,
         receiptHeader,
         receiptFooter,
+        upiId: trimmedUpiId || null,
+        upiPayeeName: trimmedUpiName || null,
         customerPrinterType,
         customerPrinterAddress,
         customerPrinterPaperWidth,
@@ -126,8 +146,16 @@ export const SettingsPage: React.FC = () => {
         kitchenPrinterPaperWidth,
         kitchenPrinterEnabled,
       });
+
+      if (trimmedUpiId) {
+        localStorage.setItem("rollz_pos_upi_id", trimmedUpiId);
+      } else {
+        localStorage.removeItem("rollz_pos_upi_id");
+      }
+      localStorage.setItem("rollz_pos_upi_payee_name", trimmedUpiName);
+
       await refreshAuthStatus();
-      showNotification("success", "Settings and printer configuration saved successfully.");
+      showNotification("success", "Settings and UPI configuration saved successfully.");
     } catch (err: any) {
       const msg = err.response?.data?.error?.message || "Failed to save settings.";
       showNotification("error", msg);
@@ -717,7 +745,137 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Section 8: Receipt Header and Footer */}
+        {/* Section 8: UPI Payments & Dynamic QR Configuration */}
+        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-6">
+          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+            <div className="p-2 rounded-xl bg-blue-50 text-[#2563EB] border border-blue-100">
+              <QrCode className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-[#172033]">UPI Payments & Dynamic QR Code</h2>
+              <p className="text-xs text-[#64748B]">
+                Configure your UPI ID so customer QR codes are automatically generated for the exact order total
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#172033]">
+                    Your UPI ID / VPA <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. shopname@okhdfcbank or 9876543210@paytm"
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono font-medium text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Any customer scanning this QR code in GPay, PhonePe, Paytm or BHIM will send payment directly to this ID.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#172033]">
+                    Payee / Merchant Display Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={restaurantName || "ROLLZ Fast Food"}
+                    value={upiPayeeName}
+                    onChange={(e) => setUpiPayeeName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Name displayed on customer's phone during UPI payment approval.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="font-bold text-[#172033] block">Test Scan QR Generator</span>
+                  <span className="text-slate-500">Enter a test amount to preview the live generated QR code</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-500">₹</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={testAmountRupees}
+                    onChange={(e) => setTestAmountRupees(e.target.value)}
+                    className="w-24 px-3 py-1.5 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#172033]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-[11px] font-semibold text-slate-500">Supported UPI Apps:</span>
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md border border-blue-200">Google Pay</span>
+                <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded-md border border-purple-200">PhonePe</span>
+                <span className="px-2 py-0.5 bg-sky-50 text-sky-700 text-[10px] font-bold rounded-md border border-sky-200">Paytm</span>
+                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-md border border-emerald-200">BHIM UPI</span>
+                <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md border border-slate-200">Cred / All Banks</span>
+              </div>
+            </div>
+
+            {/* Live QR Preview Box */}
+            <div className="flex flex-col items-center justify-center p-5 bg-gradient-to-b from-slate-50 to-blue-50/40 border border-blue-100 rounded-2xl text-center">
+              <span className="text-xs font-bold text-blue-900 mb-2 flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-blue-600" />
+                <span>Live Test Preview</span>
+              </span>
+
+              {upiId.trim() ? (
+                <>
+                  <div className="p-3 bg-white rounded-xl shadow-md border border-slate-200 mb-3">
+                    <QRCodeSVG
+                      value={`upi://pay?pa=${encodeURIComponent(upiId.trim())}&pn=${encodeURIComponent(
+                        upiPayeeName.trim() || restaurantName || "Merchant"
+                      )}&am=${(parseFloat(testAmountRupees) || 1).toFixed(2)}&cu=INR&tn=TestPayment`}
+                      size={150}
+                      level="M"
+                    />
+                  </div>
+                  <div className="text-xs font-extrabold text-[#172033] mb-1">
+                    Amount: ₹{(parseFloat(testAmountRupees) || 1).toFixed(2)}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-600 bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200 max-w-full truncate">
+                    <span>{upiId.trim()}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(upiId.trim());
+                        setHasCopiedUpi(true);
+                        setTimeout(() => setHasCopiedUpi(false), 2000);
+                      }}
+                      className="text-blue-600 hover:text-blue-800 cursor-pointer ml-1"
+                    >
+                      {hasCopiedUpi ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-emerald-700 font-semibold mt-1.5 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Ready for POS checkout
+                  </span>
+                </>
+              ) : (
+                <div className="py-8 px-4 flex flex-col items-center">
+                  <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                    <QrCode className="w-8 h-8 text-slate-300" />
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Enter your UPI ID on the left to see your live payment QR code preview
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Section 9: Receipt Header and Footer */}
         <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
           <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
             <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-100">

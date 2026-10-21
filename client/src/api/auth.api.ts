@@ -14,6 +14,8 @@ export interface Branch {
   code: string;
   taxMode?: "GST" | "NON_GST";
   gstin?: string | null;
+  upiId?: string | null;
+  upiPayeeName?: string | null;
 }
 
 export interface AuthResponse {

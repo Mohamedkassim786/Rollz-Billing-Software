@@ -12,6 +12,8 @@ export interface BranchSettings {
   defaultTaxRate: number;
   receiptHeader?: string;
   receiptFooter?: string;
+  upiId?: string | null;
+  upiPayeeName?: string | null;
   customerPrinterType: string;
   customerPrinterAddress?: string;
   customerPrinterPaperWidth: number;
@@ -55,6 +57,8 @@ export interface UpdateSettingsInput {
   defaultTaxRate?: number;
   receiptHeader?: string;
   receiptFooter?: string;
+  upiId?: string | null;
+  upiPayeeName?: string | null;
   customerPrinterType?: string;
   customerPrinterAddress?: string;
   customerPrinterPaperWidth?: number;

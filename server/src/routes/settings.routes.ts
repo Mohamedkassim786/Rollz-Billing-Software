@@ -21,6 +21,8 @@ const updateSettingsSchema = z.object({
   taxMode: z.enum(["GST", "NON_GST"]).optional(),
   receiptHeader: z.string().trim().nullable().optional(),
   receiptFooter: z.string().trim().nullable().optional(),
+  upiId: z.string().trim().nullable().optional(),
+  upiPayeeName: z.string().trim().nullable().optional(),
   customerPrinterType: z.enum(["MOCK", "NETWORK_TCP"]).optional(),
   customerPrinterAddress: z.string().trim().nullable().optional(),
   customerPrinterPaperWidth: z.coerce.number().int().optional(),
