@@ -1,7 +1,8 @@
 Add-Type -AssemblyName System.Drawing
 
-$srcPath = "c:\Users\haafi\Desktop\Billing Software\client\public\rollz-logo.png"
-$icoPath = "c:\Users\haafi\Desktop\Billing Software\rollz-logo.ico"
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+$srcPath = Join-Path $ScriptDir "client\public\rollz-logo.png"
+$icoPath = Join-Path $ScriptDir "rollz-logo.ico"
 
 $src = [System.Drawing.Image]::FromFile($srcPath)
 $size = 256

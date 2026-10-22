@@ -34,8 +34,8 @@ test("Food Image Upload & Safety Tests", async (t) => {
     assert.equal(res.body.error.code, "IMAGE_UPLOAD_ERROR");
   });
 
-  await t.test("Reject oversized file upload (> 2MB)", async () => {
-    const largeBuffer = Buffer.alloc(2.5 * 1024 * 1024); // 2.5MB
+  await t.test("Reject oversized file upload (> 15MB)", async () => {
+    const largeBuffer = Buffer.alloc(16 * 1024 * 1024); // 16MB
     const res = await request(app)
       .post(`/api/menu-items/${itemId}/image`)
       .set("Authorization", `Bearer ${ctx.ownerToken}`)

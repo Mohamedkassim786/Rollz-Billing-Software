@@ -16,9 +16,13 @@ import {
   CreditCard,
   Sliders,
   FileText,
+  Phone,
+  User,
+  MessageSquare,
 } from "lucide-react";
 import { posApi, POSCategory, POSMenuItem } from "../api/pos.api";
 import { orderApi, OrderItemInput, CalculationResult, OrderRecord, SelectedModifierInput } from "../api/orders.api";
+import { customersApi, CustomerRecord } from "../api/customers.api";
 import { formatPaise } from "../utils/currency";
 import { ConfirmModal } from "../components/Common/ConfirmModal";
 import { POSCustomizerModal } from "../components/POS/POSCustomizerModal";
@@ -38,7 +42,7 @@ interface CartLine {
 
 export const POSTerminalPage: React.FC = () => {
   const { branch } = useAuth();
-  const isNonGst = branch?.taxMode === "NON_GST";
+  const isNonGst = branch?.taxMode === "NON_GST" || localStorage.getItem("rollz_pos_tax_mode") === "NON_GST";
   // POS Data
   const [categories, setCategories] = useState<POSCategory[]>([]);
   const [menuItems, setMenuItems] = useState<POSMenuItem[]>([]);
@@ -53,8 +57,44 @@ export const POSTerminalPage: React.FC = () => {
   const [tableNumber, setTableNumber] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerSuggestions, setCustomerSuggestions] = useState<CustomerRecord[]>([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [matchedCustomer, setMatchedCustomer] = useState<CustomerRecord | null>(null);
   const [orderNotes, setOrderNotes] = useState("");
   const [activeDraftOrderId, setActiveDraftOrderId] = useState<string | null>(null);
+
+  // Customer phone lookup debounce
+  useEffect(() => {
+    const cleanDigits = customerPhone.replace(/\D/g, "");
+    if (cleanDigits.length < 3) {
+      setCustomerSuggestions([]);
+      setShowCustomerDropdown(false);
+      if (cleanDigits.length === 0) setMatchedCustomer(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const matches = await customersApi.searchCustomers(cleanDigits);
+        setCustomerSuggestions(matches);
+        setShowCustomerDropdown(matches.length > 0);
+
+        const exact = matches.find((m) => m.phone === cleanDigits || m.phone.endsWith(cleanDigits));
+        if (exact) {
+          setMatchedCustomer(exact);
+          if (!customerName) {
+            setCustomerName(exact.name);
+          }
+        } else {
+          setMatchedCustomer(null);
+        }
+      } catch {
+        // Ignore search error
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [customerPhone]);
 
   // Calculation State
   const [serverCalculation, setServerCalculation] = useState<CalculationResult | null>(null);
@@ -730,15 +770,106 @@ export const POSTerminalPage: React.FC = () => {
               </div>
             )}
 
-            {/* Optional Customer Name */}
-            <div className="space-y-1">
-              <input
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Customer Name (optional)"
-                className="w-full px-3 py-1.5 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] placeholder-slate-400 focus:outline-none focus:border-[#2563EB]"
-              />
+            {/* Customer CRM & WhatsApp Integration */}
+            <div className="space-y-2 pt-1">
+              {/* Phone Input with Autocomplete */}
+              <div className="relative">
+                <div className="relative flex items-center">
+                  <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    onFocus={() => {
+                      if (customerSuggestions.length > 0) setShowCustomerDropdown(true);
+                    }}
+                    placeholder="Customer Mobile (WhatsApp Bill)"
+                    className="w-full pl-8 pr-7 py-1.5 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] placeholder-slate-400 focus:outline-none focus:border-[#2563EB]"
+                  />
+                  {customerPhone && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomerPhone("");
+                        setMatchedCustomer(null);
+                        setShowCustomerDropdown(false);
+                      }}
+                      className="absolute right-2 text-slate-400 hover:text-slate-600 p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Autocomplete Dropdown */}
+                {showCustomerDropdown && customerSuggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-100">
+                    {customerSuggestions.map((cust) => (
+                      <div
+                        key={cust.id}
+                        onClick={() => {
+                          setCustomerPhone(cust.phone);
+                          setCustomerName(cust.name);
+                          setMatchedCustomer(cust);
+                          setShowCustomerDropdown(false);
+                        }}
+                        className="p-2.5 hover:bg-blue-50 cursor-pointer flex items-center justify-between text-xs transition-colors"
+                      >
+                        <div>
+                          <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                            <User className="w-3 h-3 text-slate-400" />
+                            <span>{cust.name}</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-500">
+                            +91 {cust.phone}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700 block">
+                            {cust.totalVisits} visits
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            {formatPaise(cust.totalSpent)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Customer Name Input */}
+              <div className="relative flex items-center">
+                <User className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Customer Name"
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] placeholder-slate-400 focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              {/* Returning Customer Loyalty Badge */}
+              {matchedCustomer && (
+                <div className="px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-[11px] text-amber-900">
+                  <span className="font-semibold flex items-center gap-1">
+                    <span>⭐</span>
+                    <span>Visit #{matchedCustomer.totalVisits + 1}</span>
+                  </span>
+                  <span className="font-mono text-amber-800 text-[10px]">
+                    Past Spend: {formatPaise(matchedCustomer.totalSpent)}
+                  </span>
+                </div>
+              )}
+
+              {/* WhatsApp Notification Indicator */}
+              {customerPhone.replace(/\D/g, "").length >= 10 && (
+                <div className="px-2 py-1 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-1.5 text-[10px] text-emerald-800 font-medium">
+                  <MessageSquare className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span>Free WhatsApp Bill & Welcome will be sent on payment</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -970,6 +1101,8 @@ export const POSTerminalPage: React.FC = () => {
           orderType={activeOrderRecord.orderType}
           grandTotalPaise={activeOrderRecord.grandTotal}
           itemCount={cart.reduce((a, b) => a + b.quantity, 0)}
+          taxTotalPaise={activeOrderRecord.taxTotal}
+          taxRateBasisPoints={activeOrderRecord.taxRate}
           onPaymentSuccess={(result) => {
             setIsPaymentModalOpen(false);
             setPaymentResult(result);

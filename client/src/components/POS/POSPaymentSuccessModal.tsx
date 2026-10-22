@@ -8,6 +8,8 @@ import {
   AlertCircle,
   RefreshCw,
   UtensilsCrossed,
+  MessageCircle,
+  ExternalLink,
 } from "lucide-react";
 import { formatPaise } from "../../utils/currency";
 import { PaymentResultResponse, paymentsApi } from "../../api/payments.api";
@@ -175,6 +177,66 @@ export const POSPaymentSuccessModal: React.FC<POSPaymentSuccessModalProps> = ({
                     Retry Job
                   </button>
                 </div>
+              )}
+            </div>
+
+            {/* WhatsApp CRM & Digital Receipt Status */}
+            <div className="space-y-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <MessageCircle className="w-4 h-4 text-emerald-600" />
+                  <span>WhatsApp Digital Receipt & CRM</span>
+                </span>
+                {result.whatsapp?.success ? (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Delivered</span>
+                  </span>
+                ) : result.order?.customerPhone ? (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800">
+                    Offline Fallback
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold text-slate-400">
+                    No phone entered
+                  </span>
+                )}
+              </div>
+
+              {result.order?.customerPhone ? (
+                <div className="flex items-center justify-between gap-2 pt-1 text-xs">
+                  <div className="text-slate-600 truncate">
+                    <span>To: </span>
+                    <span className="font-semibold text-slate-800">
+                      {result.order.customerName ? `${result.order.customerName} (` : ""}
+                      {result.order.customerPhone}
+                      {result.order.customerName ? ")" : ""}
+                    </span>
+                    {result.customer?.totalVisits && (
+                      <span className="ml-1 text-[11px] text-blue-600 font-semibold">
+                        • {result.customer.totalVisits} visits
+                      </span>
+                    )}
+                  </div>
+
+                  {result.whatsapp?.directUrl && (
+                    <a
+                      href={result.whatsapp.directUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                      title="Open in WhatsApp Web / App"
+                    >
+                      <MessageCircle className="w-3 h-3" />
+                      <span>{result.whatsapp?.success ? "Chat" : "Send via WhatsApp"}</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500">
+                  Tip: Next time enter customer phone number in POS to auto-save and send instant WhatsApp bills.
+                </p>
               )}
             </div>
 

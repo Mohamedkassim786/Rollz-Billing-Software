@@ -1,33 +1,40 @@
 import React, { useState, useEffect } from "react";
 import {
   Store,
-  Phone,
   Receipt,
-  Percent,
   CheckCircle2,
   AlertCircle,
   Save,
-  Building,
   Printer,
-  Database,
   RefreshCw,
-  HardDrive,
   Network,
-  RotateCcw,
   QrCode,
   Smartphone,
   Copy,
   Check,
+  User as UserIcon,
+  Users,
+  Lock,
+  KeyRound,
+  Plus,
+  Upload,
+  X,
+  Image as ImageIcon,
+  HardDrive,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../context/AuthContext";
 import { settingsApi, BackupItem, HostInfo } from "../api/settings.api";
+import { usersApi, StaffUser } from "../api/users.api";
+import { authApi } from "../api/auth.api";
 
 export const SettingsPage: React.FC = () => {
-  const { user, refreshAuthStatus } = useAuth();
+  const { user, branch, refreshAuthStatus } = useAuth();
+  const [activeTab, setActiveTab] = useState<"STORE" | "STAFF" | "ACCOUNT" | "PRINTERS" | "BACKUPS">("STORE");
 
   // General & Branch Settings
   const [restaurantName, setRestaurantName] = useState("ROLLZ Fast Food");
+  const [tagline, setTagline] = useState("Fresh • Crispy • Handcrafted");
   const [branchCode, setBranchCode] = useState("ROLLZ-001");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
@@ -37,6 +44,12 @@ export const SettingsPage: React.FC = () => {
   const [defaultTaxRate, setDefaultTaxRate] = useState<number>(5);
   const [receiptHeader, setReceiptHeader] = useState("");
   const [receiptFooter, setReceiptFooter] = useState("");
+
+  // Branding (Logo & Login Photo)
+  const [logoPath, setLogoPath] = useState<string | null>(null);
+  const [loginBgPath, setLoginBgPath] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isUploadingBg, setIsUploadingBg] = useState(false);
 
   // UPI Digital Payments Settings
   const [upiId, setUpiId] = useState("");
@@ -56,6 +69,29 @@ export const SettingsPage: React.FC = () => {
   const [kitchenPrinterPaperWidth, setKitchenPrinterPaperWidth] = useState<number>(80);
   const [kitchenPrinterEnabled, setKitchenPrinterEnabled] = useState(true);
 
+  // Staff & Cashier Management
+  const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
+  const [isLoadingStaff, setIsLoadingStaff] = useState(false);
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"CASHIER" | "MANAGER">("CASHIER");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+  // Reset Password Modal for Staff
+  const [resetTargetUser, setResetTargetUser] = useState<StaffUser | null>(null);
+  const [staffNewPassword, setStaffNewPassword] = useState("");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+
+  // My Account (Profile & Password Change)
+  const [myDisplayName, setMyDisplayName] = useState(user?.displayName || "");
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
   // Host and Backup Info
   const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
   const [backups, setBackups] = useState<BackupItem[]>([]);
@@ -64,7 +100,6 @@ export const SettingsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
-  const [isRecoveringQueue, setIsRecoveringQueue] = useState(false);
   const [testingPrinter, setTestingPrinter] = useState<string | null>(null);
   const [restoringBackup, setRestoringBackup] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -80,6 +115,7 @@ export const SettingsPage: React.FC = () => {
       const data = await settingsApi.getSettings();
       const b = data.branch;
       setRestaurantName(b.name || "ROLLZ Fast Food");
+      setTagline(b.tagline || "Fresh • Crispy • Handcrafted");
       setBranchCode(b.code || "ROLLZ-001");
       setAddress(b.address || "");
       setPhone(b.phone || "");
@@ -89,6 +125,9 @@ export const SettingsPage: React.FC = () => {
       setDefaultTaxRate(b.defaultTaxRate ?? 5);
       setReceiptHeader(b.receiptHeader || "WELCOME TO ROLLZ\nFresh • Crispy • Handcrafted");
       setReceiptFooter(b.receiptFooter || "Thank you for dining with us!\nVisit again soon.");
+      setLogoPath(b.logoPath || null);
+      setLoginBgPath(b.loginBgPath || null);
+
       const savedUpiId = b.upiId || localStorage.getItem("rollz_pos_upi_id") || "";
       const savedUpiName = b.upiPayeeName || localStorage.getItem("rollz_pos_upi_payee_name") || b.name || "ROLLZ Fast Food";
       setUpiId(savedUpiId);
@@ -105,12 +144,23 @@ export const SettingsPage: React.FC = () => {
       setKitchenPrinterEnabled(b.kitchenPrinterEnabled ?? true);
 
       setHostInfo(data.hostInfo);
-      setBackups(data.backups || []);
+      setBackups(data.backups);
     } catch (err: any) {
-      console.error("Failed to load settings:", err);
-      showNotification("error", "Failed to load restaurant settings from server.");
+      showNotification("error", "Failed to load restaurant settings: " + (err.message || "Unknown error"));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadStaffUsers = async () => {
+    setIsLoadingStaff(true);
+    try {
+      const users = await usersApi.listUsers();
+      setStaffUsers(users);
+    } catch (err: any) {
+      console.warn("Failed to load staff list:", err);
+    } finally {
+      setIsLoadingStaff(false);
     }
   };
 
@@ -118,7 +168,17 @@ export const SettingsPage: React.FC = () => {
     loadSettings();
   }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (activeTab === "STAFF") {
+      loadStaffUsers();
+    }
+    if (user?.displayName) {
+      setMyDisplayName(user.displayName);
+    }
+  }, [activeTab, user]);
+
+  // Save Store Settings
+  const handleSaveStoreSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
@@ -127,6 +187,7 @@ export const SettingsPage: React.FC = () => {
 
       await settingsApi.updateSettings({
         name: restaurantName,
+        tagline,
         address,
         phone,
         email,
@@ -153,58 +214,193 @@ export const SettingsPage: React.FC = () => {
         localStorage.removeItem("rollz_pos_upi_id");
       }
       localStorage.setItem("rollz_pos_upi_payee_name", trimmedUpiName);
+      localStorage.setItem("rollz_pos_tax_mode", taxMode);
 
       await refreshAuthStatus();
-      showNotification("success", "Settings and UPI configuration saved successfully.");
+      showNotification("success", "Restaurant settings saved successfully.");
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || "Failed to save settings.";
-      showNotification("error", msg);
+      showNotification("error", err.response?.data?.error?.message || "Failed to save settings.");
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Logo Upload
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setIsUploadingLogo(true);
+      try {
+        const res = await settingsApi.uploadLogo(file);
+        setLogoPath(res.logoPath);
+        await refreshAuthStatus();
+        showNotification("success", "Logo updated successfully!");
+      } catch (err: any) {
+        showNotification("error", err.response?.data?.error?.message || "Failed to upload logo");
+      } finally {
+        setIsUploadingLogo(false);
+      }
+    }
+  };
+
+  const handleResetLogo = async () => {
+    try {
+      await settingsApi.deleteLogo();
+      setLogoPath(null);
+      await refreshAuthStatus();
+      showNotification("success", "Logo reset to default Rollz branding.");
+    } catch (err: any) {
+      showNotification("error", "Failed to reset logo");
+    }
+  };
+
+  // Login Background Wallpaper Upload
+  const handleLoginBgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setIsUploadingBg(true);
+      try {
+        const res = await settingsApi.uploadLoginBg(file);
+        setLoginBgPath(res.loginBgPath);
+        await refreshAuthStatus();
+        showNotification("success", "Login screen wallpaper updated successfully!");
+      } catch (err: any) {
+        showNotification("error", err.response?.data?.error?.message || "Failed to upload wallpaper");
+      } finally {
+        setIsUploadingBg(false);
+      }
+    }
+  };
+
+  const handleResetLoginBg = async () => {
+    try {
+      await settingsApi.deleteLoginBg();
+      setLoginBgPath(null);
+      await refreshAuthStatus();
+      showNotification("success", "Login screen background reset to default.");
+    } catch (err: any) {
+      showNotification("error", "Failed to reset background");
+    }
+  };
+
+  // Create Staff / Cashier
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUsername.trim() || !newUserPassword.trim()) return;
+    setIsCreatingUser(true);
+    try {
+      await usersApi.createUser({
+        username: newUsername.trim(),
+        displayName: newDisplayName.trim() || newUsername.trim(),
+        password: newUserPassword,
+        role: newUserRole,
+      });
+      showNotification("success", `Staff member '${newDisplayName || newUsername}' created successfully!`);
+      setIsAddUserOpen(false);
+      setNewUsername("");
+      setNewDisplayName("");
+      setNewUserPassword("");
+      loadStaffUsers();
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.error?.message || "Failed to create staff member");
+    } finally {
+      setIsCreatingUser(false);
+    }
+  };
+
+  // Toggle Staff Status
+  const handleToggleStaffStatus = async (staffId: string) => {
+    try {
+      const res = await usersApi.toggleStatus(staffId);
+      showNotification("success", res.message);
+      loadStaffUsers();
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.error?.message || "Failed to change user status");
+    }
+  };
+
+  // Reset Staff Password
+  const handleResetStaffPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetTargetUser || !staffNewPassword.trim()) return;
+    setIsResettingPassword(true);
+    try {
+      const res = await usersApi.resetPassword(resetTargetUser.id, staffNewPassword);
+      showNotification("success", res.message);
+      setResetTargetUser(null);
+      setStaffNewPassword("");
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.error?.message || "Failed to reset password");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  // Change My Password
+  const handleChangeMyPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      showNotification("error", "New password and confirmation do not match.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      showNotification("error", "New password must be at least 6 characters long.");
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await authApi.changePassword({ currentPassword, newPassword });
+      showNotification("success", "Your password has been changed successfully!");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.error?.message || "Failed to change password.");
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  // Update My Profile
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!myDisplayName.trim()) return;
+    setIsUpdatingProfile(true);
+    try {
+      await authApi.updateProfile({ displayName: myDisplayName.trim() });
+      await refreshAuthStatus();
+      showNotification("success", "Profile display name updated!");
+    } catch (err: any) {
+      showNotification("error", err.response?.data?.error?.message || "Failed to update profile.");
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  // Test Print
   const handleTestPrint = async (destination: "CUSTOMER_RECEIPT" | "KITCHEN") => {
     setTestingPrinter(destination);
     try {
       const res = await settingsApi.testPrint(destination);
-      if (res.success) {
-        showNotification("success", res.message);
-      } else {
-        showNotification("error", res.message || "Test print failed");
-      }
+      showNotification("success", res.message);
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || "Failed to dispatch test print";
-      showNotification("error", msg);
+      showNotification("error", err.response?.data?.error?.message || "Test print failed");
     } finally {
       setTestingPrinter(null);
     }
   };
 
-  const handleRecoverQueue = async () => {
-    setIsRecoveringQueue(true);
-    try {
-      const res = await settingsApi.recoverPrintQueue();
-      showNotification("success", `${res.message} (${res.recoveredCount} jobs recovered)`);
-    } catch (err: any) {
-      const msg = err.response?.data?.error?.message || "Failed to recover print queue.";
-      showNotification("error", msg);
-    } finally {
-      setIsRecoveringQueue(false);
-    }
-  };
-
-  const handleCreateBackup = async () => {
+  // Database Backup
+  const handleBackupNow = async () => {
     setIsBackingUp(true);
     try {
       const res = await settingsApi.triggerBackup();
       showNotification("success", `Backup created: ${res.backup.filename}`);
-      // Refresh backups
       const bRes = await settingsApi.getBackups();
       setBackups(bRes.backups);
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || "Failed to create database backup.";
-      showNotification("error", msg);
+      showNotification("error", err.response?.data?.error?.message || "Failed to create database backup.");
     } finally {
       setIsBackingUp(false);
     }
@@ -214,7 +410,6 @@ export const SettingsPage: React.FC = () => {
     if (!window.confirm(`Run safe verification restore for '${filename}' against test database (rollz_pos_test)?\n\nNote: Production data will NOT be touched.`)) {
       return;
     }
-
     setRestoringBackup(filename);
     try {
       const res = await settingsApi.restoreBackup(filename, "rollz_pos_test");
@@ -224,8 +419,7 @@ export const SettingsPage: React.FC = () => {
         showNotification("error", res.message || "Restoration verification failed");
       }
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || "Restore verification failed";
-      showNotification("error", msg);
+      showNotification("error", err.response?.data?.error?.message || "Restore verification failed");
     } finally {
       setRestoringBackup(null);
     }
@@ -243,22 +437,22 @@ export const SettingsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl pb-16">
-      {/* Header */}
+    <div className="space-y-6 max-w-5xl pb-16 mx-auto">
+      {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-[#172033] tracking-tight flex items-center gap-2.5">
-            <Store className="w-5 h-5 text-[#2563EB]" />
-            <span>Settings & Production Readiness</span>
+            <Store className="w-6 h-6 text-[#2563EB]" />
+            <span>Settings & System Administration</span>
           </h1>
           <p className="text-xs sm:text-sm text-[#64748B] mt-1">
-            Manage restaurant identity, thermal printer hardware, network connectivity, and database backups.
+            Manage restaurant branding, cashiers, user accounts, thermal printers, and database backups.
           </p>
         </div>
 
-        {isOwnerOrManager && (
+        {activeTab === "STORE" && isOwnerOrManager && (
           <button
-            onClick={handleSave}
+            onClick={handleSaveStoreSettings}
             disabled={isSaving}
             className="flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-sm hover:shadow transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
@@ -286,49 +480,771 @@ export const SettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Local Network Info Banner */}
-      {hostInfo && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-3xl p-5 shadow-card">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-sm">
-                <Network className="w-5 h-5" />
+      {/* Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#E2E8F0] pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("STORE")}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "STORE"
+              ? "bg-[#2563EB] text-white shadow-md shadow-blue-500/20"
+              : "bg-white text-slate-600 border border-[#E2E8F0] hover:bg-slate-50"
+          }`}
+        >
+          <Store className="w-4 h-4" />
+          <span>Store & Branding</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("STAFF")}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "STAFF"
+              ? "bg-[#2563EB] text-white shadow-md shadow-blue-500/20"
+              : "bg-white text-slate-600 border border-[#E2E8F0] hover:bg-slate-50"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Staff & Cashiers</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("ACCOUNT")}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "ACCOUNT"
+              ? "bg-[#2563EB] text-white shadow-md shadow-blue-500/20"
+              : "bg-white text-slate-600 border border-[#E2E8F0] hover:bg-slate-50"
+          }`}
+        >
+          <Lock className="w-4 h-4" />
+          <span>My Account & Password</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("PRINTERS")}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "PRINTERS"
+              ? "bg-[#2563EB] text-white shadow-md shadow-blue-500/20"
+              : "bg-white text-slate-600 border border-[#E2E8F0] hover:bg-slate-50"
+          }`}
+        >
+          <Printer className="w-4 h-4" />
+          <span>Thermal Printers</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("BACKUPS")}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "BACKUPS"
+              ? "bg-[#2563EB] text-white shadow-md shadow-blue-500/20"
+              : "bg-white text-slate-600 border border-[#E2E8F0] hover:bg-slate-50"
+          }`}
+        >
+          <HardDrive className="w-4 h-4" />
+          <span>Backups & LAN</span>
+        </button>
+      </div>
+
+      {/* ============================================================ */}
+      {/* TAB 1: STORE & BRANDING                                      */}
+      {/* ============================================================ */}
+      {activeTab === "STORE" && (
+        <form onSubmit={handleSaveStoreSettings} className="space-y-6">
+          {/* Section: Custom Branding (Logo & Login Photo) */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div>
+              <h2 className="text-sm font-bold text-[#172033] flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-[#2563EB]" />
+                <span>Restaurant Branding & Visuals</span>
+              </h2>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Customize your restaurant logo and the welcome wallpaper on the POS login page.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+              {/* Logo Uploader */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800">Restaurant Logo</span>
+                  {logoPath && (
+                    <button
+                      type="button"
+                      onClick={handleResetLogo}
+                      className="text-[11px] text-red-600 hover:underline font-semibold"
+                    >
+                      Reset to Default
+                    </button>
+                  )}
+                </div>
+
+                <div className="h-28 bg-white border border-slate-200 rounded-xl flex items-center justify-center p-3 relative overflow-hidden shadow-xs">
+                  <img
+                    src={logoPath || "/rollz-logo.png"}
+                    alt="Logo Preview"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+
+                <label className="block w-full">
+                  <span className="sr-only">Choose Logo</span>
+                  <div className="w-full py-2 px-3 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                    <Upload className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{isUploadingLogo ? "Uploading..." : "Upload New Logo"}</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    onChange={handleLogoUpload}
+                    disabled={isUploadingLogo}
+                    className="hidden"
+                  />
+                </label>
+                <p className="text-[10px] text-slate-400 text-center">
+                  PNG, SVG, or WEBP transparent logo recommended.
+                </p>
               </div>
-              <div>
-                <h2 className="text-sm font-bold text-[#172033]">Local Network Deployment (LAN Ready)</h2>
-                <p className="text-xs text-[#64748B] mt-0.5">
-                  Connect other restaurant terminals via the main computer's local IP on port{" "}
-                  <span className="font-mono font-bold text-[#2563EB]">{hostInfo.port}</span>.
+
+              {/* Login Wallpaper Uploader */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800">Login Screen Wallpaper</span>
+                  {loginBgPath && (
+                    <button
+                      type="button"
+                      onClick={handleResetLoginBg}
+                      className="text-[11px] text-red-600 hover:underline font-semibold"
+                    >
+                      Reset to Default
+                    </button>
+                  )}
+                </div>
+
+                <div className="h-28 bg-slate-900 border border-slate-200 rounded-xl flex items-center justify-center relative overflow-hidden shadow-xs">
+                  {loginBgPath ? (
+                    <img
+                      src={loginBgPath}
+                      alt="Login Background Preview"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center p-3 space-y-1">
+                      <ImageIcon className="w-6 h-6 text-slate-400 mx-auto" />
+                      <span className="text-[10px] text-slate-400 block">Default dark gradient theme</span>
+                    </div>
+                  )}
+                </div>
+
+                <label className="block w-full">
+                  <span className="sr-only">Choose Wallpaper</span>
+                  <div className="w-full py-2 px-3 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                    <Upload className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{isUploadingBg ? "Uploading..." : "Upload Login Wallpaper"}</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={handleLoginBgUpload}
+                    disabled={isUploadingBg}
+                    className="hidden"
+                  />
+                </label>
+                <p className="text-[10px] text-slate-400 text-center">
+                  Full HD restaurant banner or food photo (up to 15MB).
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs font-mono">
-              <span className="px-3 py-1 bg-white border border-blue-200 text-slate-700 rounded-lg">
-                Host: <b>{hostInfo.host}</b>
-              </span>
-              <span className="px-3 py-1 bg-white border border-blue-200 text-slate-700 rounded-lg">
-                DB: <b>{hostInfo.database}</b>
-              </span>
+          </div>
+
+          {/* Section: Restaurant Identity & Regulatory */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div>
+              <h2 className="text-sm font-bold text-[#172033] flex items-center gap-2">
+                <Store className="w-4 h-4 text-[#2563EB]" />
+                <span>Restaurant Information & Tax Mode</span>
+              </h2>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Physical location, legal identity, and tax regulation.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Restaurant Name</label>
+                <input
+                  type="text"
+                  value={restaurantName}
+                  onChange={(e) => setRestaurantName(e.target.value)}
+                  placeholder="e.g. ROLLZ Fast Food"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Brand Tagline / Slogan</label>
+                <input
+                  type="text"
+                  value={tagline}
+                  onChange={(e) => setTagline(e.target.value)}
+                  placeholder="e.g. Fresh • Crispy • Handcrafted"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Branch Code</label>
+                <input
+                  type="text"
+                  disabled
+                  value={branchCode}
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono font-semibold text-slate-500 bg-slate-100 cursor-not-allowed"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Contact Phone</label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="Store contact number"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="md:col-span-2 space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Restaurant Address</label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Street, City, State, PIN"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+            </div>
+
+            {/* Regulatory Tax Mode */}
+            <div className="pt-4 border-t border-slate-100 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#172033]">Tax Regulatory Mode</label>
+                  <select
+                    value={taxMode}
+                    onChange={(e) => setTaxMode(e.target.value as "GST" | "NON_GST")}
+                    className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-bold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="GST">GST Mode (CGST + SGST)</option>
+                    <option value="NON_GST">Non-GST Simple Bill (0% Tax)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#172033]">GSTIN Number</label>
+                  <input
+                    type="text"
+                    disabled={taxMode === "NON_GST"}
+                    value={taxMode === "NON_GST" ? "N/A (Non-GST)" : gstin}
+                    onChange={(e) => setGstin(e.target.value)}
+                    placeholder="e.g. 32AAAAA0000A1Z5"
+                    className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono font-semibold text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#172033]">Default GST Rate (%)</label>
+                  <input
+                    type="number"
+                    disabled={taxMode === "NON_GST"}
+                    value={taxMode === "NON_GST" ? 0 : defaultTaxRate}
+                    onChange={(e) => setDefaultTaxRate(parseFloat(e.target.value) || 0)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                  />
+                </div>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl text-xs ${
+                  taxMode === "NON_GST"
+                    ? "bg-amber-50 text-amber-800 border border-amber-200"
+                    : "bg-blue-50 text-blue-800 border border-blue-200"
+                }`}
+              >
+                {taxMode === "NON_GST" ? (
+                  <span>
+                    <strong>Non-GST Mode Active:</strong> 0% tax is applied to orders. Checkout banners show &quot;No GST&quot;, and receipts print as Simple Bills without GSTIN lines.
+                  </span>
+                ) : (
+                  <span>
+                    <strong>GST Mode Active:</strong> Standard 5% GST (2.5% CGST + 2.5% SGST) applied to bills, with registered GSTIN printed on receipts.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section: UPI Payments & Dynamic QR Configuration with Live Test */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-6">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="p-2 rounded-xl bg-blue-50 text-[#2563EB] border border-blue-100">
+                <QrCode className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-[#172033]">UPI Payments & Dynamic QR Code</h2>
+                <p className="text-xs text-[#64748B]">
+                  Configure your UPI ID so customer QR codes are automatically generated for the exact order total
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#172033]">
+                      Your UPI ID / VPA <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. shopname@okhdfcbank or 9876543210@paytm"
+                      value={upiId}
+                      onChange={(e) => setUpiId(e.target.value)}
+                      className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono font-medium text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Any customer scanning this QR code in GPay, PhonePe, Paytm, or BHIM will send payment directly to this ID.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#172033]">
+                      Payee / Merchant Display Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={restaurantName || "ROLLZ Fast Food"}
+                      value={upiPayeeName}
+                      onChange={(e) => setUpiPayeeName(e.target.value)}
+                      className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Name displayed on customer's phone during UPI payment approval.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                  <div>
+                    <span className="font-bold text-[#172033] block">Test Scan QR Generator</span>
+                    <span className="text-slate-500">Enter a test amount to preview the live generated QR code</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-500">₹</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={testAmountRupees}
+                      onChange={(e) => setTestAmountRupees(e.target.value)}
+                      className="w-24 px-3 py-1.5 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#172033] focus:outline-none focus:border-[#2563EB]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-[11px] font-semibold text-slate-500">Supported UPI Apps:</span>
+                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md border border-blue-200">Google Pay</span>
+                  <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded-md border border-purple-200">PhonePe</span>
+                  <span className="px-2 py-0.5 bg-sky-50 text-sky-700 text-[10px] font-bold rounded-md border border-sky-200">Paytm</span>
+                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-md border border-emerald-200">BHIM UPI</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md border border-slate-200">Cred / All Banks</span>
+                </div>
+              </div>
+
+              {/* Live QR Preview Box */}
+              <div className="flex flex-col items-center justify-center p-5 bg-gradient-to-b from-slate-50 to-blue-50/40 border border-blue-100 rounded-2xl text-center">
+                <span className="text-xs font-bold text-blue-900 mb-2 flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Live Test Preview</span>
+                </span>
+
+                {upiId.trim() ? (
+                  <>
+                    <div className="p-3 bg-white rounded-xl shadow-md border border-slate-200 mb-3">
+                      <QRCodeSVG
+                        value={`upi://pay?pa=${encodeURIComponent(upiId.trim())}&pn=${encodeURIComponent(
+                          upiPayeeName.trim() || restaurantName || "Merchant"
+                        )}&am=${(parseFloat(testAmountRupees) || 1).toFixed(2)}&cu=INR&tn=TestPayment`}
+                        size={150}
+                        level="M"
+                      />
+                    </div>
+                    <div className="text-xs font-extrabold text-[#172033] mb-1">
+                      Amount: ₹{(parseFloat(testAmountRupees) || 1).toFixed(2)}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-600 bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200 max-w-full truncate">
+                      <span className="truncate">{upiId.trim()}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(upiId.trim());
+                          setHasCopiedUpi(true);
+                          setTimeout(() => setHasCopiedUpi(false), 2000);
+                        }}
+                        className="text-blue-600 hover:text-blue-800 cursor-pointer ml-1 shrink-0"
+                        title="Copy UPI ID"
+                      >
+                        {hasCopiedUpi ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                    </div>
+                    <span className="text-[10px] text-emerald-700 font-semibold mt-1.5 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Ready for POS checkout
+                    </span>
+                  </>
+                ) : (
+                  <div className="py-8 px-4 flex flex-col items-center">
+                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                      <QrCode className="w-8 h-8 text-slate-300" />
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Enter your UPI ID on the left to see your live payment QR code preview
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Receipt Header & Footer */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div>
+              <h2 className="text-sm font-bold text-[#172033] flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-[#2563EB]" />
+                <span>Receipt Header & Footer Messages</span>
+              </h2>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Printed on top and bottom of customer thermal receipts.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Receipt Header Note</label>
+                <textarea
+                  rows={3}
+                  value={receiptHeader}
+                  onChange={(e) => setReceiptHeader(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Receipt Footer Greeting</label>
+                <textarea
+                  rows={3}
+                  value={receiptFooter}
+                  onChange={(e) => setReceiptFooter(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 2: STAFF & CASHIER MANAGEMENT                           */}
+      {/* ============================================================ */}
+      {activeTab === "STAFF" && (
+        <div className="space-y-6">
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-sm font-bold text-[#172033] flex items-center gap-2">
+                  <Users className="w-5 h-5 text-[#2563EB]" />
+                  <span>Cashiers & Staff Accounts</span>
+                </h2>
+                <p className="text-xs text-[#64748B] mt-0.5">
+                  Create cashier login credentials, reset passwords, and toggle staff active status.
+                </p>
+              </div>
+
+              {isOwnerOrManager && (
+                <button
+                  type="button"
+                  onClick={() => setIsAddUserOpen(true)}
+                  className="flex items-center gap-2 bg-[#2563EB] hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-sm transition-all cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create New Cashier</span>
+                </button>
+              )}
+            </div>
+
+            {/* Staff List Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-4">Staff Member</th>
+                    <th className="py-3 px-4">Username</th>
+                    <th className="py-3 px-4">Role</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Created Date</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {isLoadingStaff ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto text-[#2563EB] mb-2" />
+                        <span>Loading staff members...</span>
+                      </td>
+                    </tr>
+                  ) : staffUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                        <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="font-semibold text-slate-700">No staff members found</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    staffUsers.map((st) => (
+                      <tr key={st.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4 font-bold text-slate-900">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-blue-100 text-[#2563EB] font-bold flex items-center justify-center text-xs">
+                              {st.displayName.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <span>{st.displayName}</span>
+                              {st.id === user?.id && (
+                                <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-slate-200 text-slate-700 font-semibold">
+                                  You
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-semibold text-slate-700">
+                          @{st.username}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              st.role === "OWNER"
+                                ? "bg-purple-100 text-purple-800"
+                                : st.role === "MANAGER"
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-emerald-100 text-emerald-800"
+                            }`}
+                          >
+                            {st.role}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              st.isActive
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-red-100 text-red-800"
+                            }`}
+                          >
+                            {st.isActive ? "Active" : "Disabled"}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-500 text-[11px]">
+                          {new Date(st.createdAt).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </td>
+                        <td className="py-3 px-4 text-right space-x-2">
+                          {isOwnerOrManager && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setResetTargetUser(st)}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                              >
+                                Reset PIN
+                              </button>
+
+                              {st.id !== user?.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStaffStatus(st.id)}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                    st.isActive
+                                      ? "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
+                                      : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                  }`}
+                                >
+                                  {st.isActive ? "Deactivate" : "Activate"}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       )}
 
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* Section 1: Thermal Receipt Printer Configuration */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-blue-50 text-[#2563EB] border border-blue-100">
-                <Printer className="w-4 h-4" />
+      {/* ============================================================ */}
+      {/* TAB 3: MY ACCOUNT & PASSWORD                                 */}
+      {/* ============================================================ */}
+      {activeTab === "ACCOUNT" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* User Profile Card */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div>
+              <h2 className="text-sm font-bold text-[#172033] flex items-center gap-2">
+                <UserIcon className="w-5 h-5 text-[#2563EB]" />
+                <span>My Account Profile</span>
+              </h2>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Current active session details and display settings.
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-lg flex items-center justify-center shadow-md">
+                  {user?.displayName?.charAt(0).toUpperCase() || "U"}
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">{user?.displayName}</h3>
+                  <p className="text-xs text-slate-500 font-mono">@{user?.username}</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-sm font-bold text-[#172033]">Customer Receipt Printer</h2>
-                <p className="text-xs text-[#64748B]">Thermal printer for finalized guest invoices</p>
+
+              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-200 text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[11px] font-semibold">Role</span>
+                  <span className="font-bold text-slate-800">{user?.role}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px] font-semibold">Branch</span>
+                  <span className="font-bold text-slate-800">{branch?.name || "ROLLZ Main"}</span>
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* Edit Display Name Form */}
+            <form onSubmit={handleUpdateProfile} className="space-y-3 pt-2">
+              <label className="text-xs font-semibold text-[#172033] block">Display Name</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  required
+                  value={myDisplayName}
+                  onChange={(e) => setMyDisplayName(e.target.value)}
+                  placeholder="Your display name"
+                  className="flex-1 h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+                <button
+                  type="submit"
+                  disabled={isUpdatingProfile || myDisplayName === user?.displayName}
+                  className="h-10 px-4 bg-[#2563EB] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  {isUpdatingProfile ? "Updating..." : "Save Name"}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Change Password Form */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div>
+              <h2 className="text-sm font-bold text-[#172033] flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-emerald-600" />
+                <span>Change Password</span>
+              </h2>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Update your login password securely.
+              </p>
+            </div>
+
+            <form onSubmit={handleChangeMyPassword} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#172033]">Current Password</label>
+                <input
+                  type="password"
+                  required
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter your current password"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#172033]">New Password</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Min. 6 characters"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-[#172033]">Confirm New Password</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-type new password"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isChangingPassword || !currentPassword || !newPassword}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>{isChangingPassword ? "Updating Password..." : "Update Password"}</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 4: THERMAL PRINTERS                                      */}
+      {/* ============================================================ */}
+      {activeTab === "PRINTERS" && (
+        <div className="space-y-6">
+          {/* Customer Receipt Printer */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-blue-50 text-[#2563EB] border border-blue-100">
+                  <Printer className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-[#172033]">Customer Receipt Printer</h2>
+                  <p className="text-xs text-[#64748B]">Thermal printer for finalized guest invoices</p>
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={() => handleTestPrint("CUSTOMER_RECEIPT")}
@@ -339,78 +1255,74 @@ export const SettingsPage: React.FC = () => {
                 <span>{testingPrinter === "CUSTOMER_RECEIPT" ? "Testing..." : "Test Print"}</span>
               </button>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Printer Status</label>
+                <div className="flex items-center h-10">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={customerPrinterEnabled}
+                      onChange={(e) => setCustomerPrinterEnabled(e.target.checked)}
+                      className="rounded text-[#2563EB] focus:ring-blue-100 w-4 h-4"
+                    />
+                    <span>{customerPrinterEnabled ? "Enabled" : "Disabled"}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Adapter / Type</label>
+                <select
+                  value={customerPrinterType}
+                  onChange={(e) => setCustomerPrinterType(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                >
+                  <option value="MOCK">MOCK (Virtual Log Adapter)</option>
+                  <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS LAN)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Network Address (IP:Port)</label>
+                <input
+                  type="text"
+                  disabled={customerPrinterType === "MOCK"}
+                  value={customerPrinterAddress}
+                  onChange={(e) => setCustomerPrinterAddress(e.target.value)}
+                  placeholder="192.168.1.200:9100"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Paper Width</label>
+                <select
+                  value={customerPrinterPaperWidth}
+                  onChange={(e) => setCustomerPrinterPaperWidth(parseInt(e.target.value))}
+                  className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                >
+                  <option value={80}>80 mm (Standard Restaurant)</option>
+                  <option value={58}>58 mm (Compact Mobile)</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 sm:gap-5">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Printer Status</label>
-              <div className="flex items-center h-10">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={customerPrinterEnabled}
-                    onChange={(e) => setCustomerPrinterEnabled(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>{customerPrinterEnabled ? "Enabled" : "Disabled"}</span>
-                </label>
+          {/* Kitchen Ticket (KOT) Printer */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-amber-50 text-amber-600 border border-amber-100">
+                  <Printer className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-[#172033]">Kitchen Order Ticket (KOT) Printer</h2>
+                  <p className="text-xs text-[#64748B]">Thermal printer dispatching orders to preparation line</p>
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Adapter / Protocol</label>
-              <select
-                value={customerPrinterType}
-                onChange={(e) => setCustomerPrinterType(e.target.value)}
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] font-medium"
-              >
-                <option value="MOCK">MOCK (Virtual / In-Memory)</option>
-                <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS Raw TCP)</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Network Address (IP:Port)</label>
-              <input
-                type="text"
-                placeholder="192.168.1.200:9100"
-                value={customerPrinterAddress}
-                onChange={(e) => setCustomerPrinterAddress(e.target.value)}
-                disabled={customerPrinterType !== "NETWORK_TCP"}
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono text-[#172033] disabled:opacity-50"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Paper Width</label>
-              <select
-                value={customerPrinterPaperWidth}
-                onChange={(e) => setCustomerPrinterPaperWidth(parseInt(e.target.value))}
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] font-medium"
-              >
-                <option value={80}>80mm (Standard 48-Col)</option>
-                <option value={58}>58mm (Compact 32-Col)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 2: Kitchen Ticket Printer Configuration */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-amber-50 text-amber-600 border border-amber-100">
-                <Printer className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-[#172033]">Kitchen Ticket Printer</h2>
-                <p className="text-xs text-[#64748B]">
-                  Prints order tickets automatically upon payment (Kitchen has NO login)
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => handleTestPrint("KITCHEN")}
@@ -418,498 +1330,319 @@ export const SettingsPage: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-[#172033] transition-all disabled:opacity-40 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5 text-amber-600" />
-                <span>{testingPrinter === "KITCHEN" ? "Testing..." : "Test Print"}</span>
+                <span>{testingPrinter === "KITCHEN" ? "Testing..." : "Test KOT"}</span>
               </button>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 sm:gap-5">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Printer Status</label>
-              <div className="flex items-center h-10">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={kitchenPrinterEnabled}
-                    onChange={(e) => setKitchenPrinterEnabled(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>{kitchenPrinterEnabled ? "Enabled" : "Disabled"}</span>
-                </label>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">KOT Printer Status</label>
+                <div className="flex items-center h-10">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={kitchenPrinterEnabled}
+                      onChange={(e) => setKitchenPrinterEnabled(e.target.checked)}
+                      className="rounded text-[#2563EB] focus:ring-blue-100 w-4 h-4"
+                    />
+                    <span>{kitchenPrinterEnabled ? "Enabled" : "Disabled"}</span>
+                  </label>
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Adapter / Protocol</label>
-              <select
-                value={kitchenPrinterType}
-                onChange={(e) => setKitchenPrinterType(e.target.value)}
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] font-medium"
-              >
-                <option value="MOCK">MOCK (Virtual / In-Memory)</option>
-                <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS Raw TCP)</option>
-              </select>
-            </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Adapter / Type</label>
+                <select
+                  value={kitchenPrinterType}
+                  onChange={(e) => setKitchenPrinterType(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                >
+                  <option value="MOCK">MOCK (Virtual Log Adapter)</option>
+                  <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS LAN)</option>
+                </select>
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Network Address (IP:Port)</label>
-              <input
-                type="text"
-                placeholder="192.168.1.201:9100"
-                value={kitchenPrinterAddress}
-                onChange={(e) => setKitchenPrinterAddress(e.target.value)}
-                disabled={kitchenPrinterType !== "NETWORK_TCP"}
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono text-[#172033] disabled:opacity-50"
-              />
-            </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Network Address (IP:Port)</label>
+                <input
+                  type="text"
+                  disabled={kitchenPrinterType === "MOCK"}
+                  value={kitchenPrinterAddress}
+                  onChange={(e) => setKitchenPrinterAddress(e.target.value)}
+                  placeholder="192.168.1.201:9100"
+                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Paper Width</label>
-              <select
-                value={kitchenPrinterPaperWidth}
-                onChange={(e) => setKitchenPrinterPaperWidth(parseInt(e.target.value))}
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] font-medium"
-              >
-                <option value={80}>80mm (Standard 48-Col)</option>
-                <option value={58}>58mm (Compact 32-Col)</option>
-              </select>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">Paper Width</label>
+                <select
+                  value={kitchenPrinterPaperWidth}
+                  onChange={(e) => setKitchenPrinterPaperWidth(parseInt(e.target.value))}
+                  className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                >
+                  <option value={80}>80 mm (Standard KOT)</option>
+                  <option value={58}>58 mm (Compact KOT)</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Section 3: Print Queue Recovery */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-100">
-                <RotateCcw className="w-4 h-4" />
+      {/* ============================================================ */}
+      {/* TAB 5: BACKUPS & LAN                                         */}
+      {/* ============================================================ */}
+      {activeTab === "BACKUPS" && (
+        <div className="space-y-6">
+          {/* LAN Connection Info */}
+          {hostInfo && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-3xl p-5 shadow-card">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-sm">
+                  <Network className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-[#172033]">Local Network Deployment (LAN Ready)</h2>
+                  <p className="text-xs text-[#64748B] mt-0.5">
+                    Connect tablets and counters via this computer's local IP on port{" "}
+                    <span className="font-mono font-bold text-[#2563EB]">{hostInfo.port}</span>.
+                  </p>
+                </div>
               </div>
+            </div>
+          )}
+
+          {/* Database Backup Section */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
-                <h2 className="text-sm font-bold text-[#172033]">Print Queue Crash Recovery</h2>
-                <p className="text-xs text-[#64748B]">
-                  Recover print jobs stuck in 'PRINTING' state after power failures or abrupt shutdowns
+                <h2 className="text-sm font-bold text-[#172033] flex items-center gap-2">
+                  <HardDrive className="w-5 h-5 text-purple-600" />
+                  <span>Production PostgreSQL Backups</span>
+                </h2>
+                <p className="text-xs text-[#64748B] mt-0.5">
+                  Automated backups stored in your local server directory.
                 </p>
               </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={handleRecoverQueue}
-              disabled={isRecoveringQueue}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRecoveringQueue ? "animate-spin" : ""}`} />
-              <span>{isRecoveringQueue ? "Scanning..." : "Recover Stale Jobs"}</span>
-            </button>
-          </div>
-          <p className="text-xs text-slate-500">
-            Note: Jobs are automatically scanned and recovered on server startup. You may also trigger manual queue
-            recovery at any time.
-          </p>
-        </div>
-
-        {/* Section 4: Database Backup & Recovery */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
-                <Database className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-[#172033]">Database Backups & Disaster Recovery</h2>
-                <p className="text-xs text-[#64748B]">Automated pg_dump exports with safe test restoration</p>
-              </div>
-            </div>
-
-            {isOwnerOrManager && (
               <button
                 type="button"
-                onClick={handleCreateBackup}
+                onClick={handleBackupNow}
                 disabled={isBackingUp}
-                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-sm transition-all cursor-pointer disabled:opacity-50"
               >
-                <HardDrive className="w-3.5 h-3.5" />
+                <HardDrive className="w-4 h-4" />
                 <span>{isBackingUp ? "Backing up..." : "Create Backup Now"}</span>
               </button>
-            )}
-          </div>
+            </div>
 
-          {/* Backup History Table */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold text-[#172033]">Recent Backups</h3>
-            {backups.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3 italic">No database backups recorded yet.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-slate-400">
-                      <th className="py-2 font-semibold">Filename</th>
-                      <th className="py-2 font-semibold">Created</th>
-                      <th className="py-2 font-semibold">Size</th>
-                      <th className="py-2 font-semibold">Status</th>
-                      <th className="py-2 font-semibold text-right">Actions</th>
+            {/* Backups Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-4">Filename</th>
+                    <th className="py-3 px-4">Size</th>
+                    <th className="py-3 px-4">Created At</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {backups.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400">
+                        No backups found. Click &quot;Create Backup Now&quot; above to take a manual snapshot.
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {backups.map((bk, i) => (
-                      <tr key={bk.id || i} className="hover:bg-slate-50">
-                        <td className="py-2.5 font-mono font-medium text-slate-800">{bk.filename}</td>
-                        <td className="py-2.5 text-slate-500">
-                          {new Date(bk.createdAt).toLocaleString("en-IN")}
+                  ) : (
+                    backups.map((b, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4 font-mono font-bold text-slate-800">
+                          {b.filename}
                         </td>
-                        <td className="py-2.5 text-slate-600 font-mono">
-                          {(bk.sizeBytes / 1024).toFixed(1)} KB
+                        <td className="py-3 px-4 font-mono text-slate-600">
+                          {(b.sizeBytes / 1024).toFixed(1)} KB
                         </td>
-                        <td className="py-2.5">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              bk.status === "SUCCESS"
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-red-50 text-red-700 border border-red-200"
-                            }`}
-                          >
-                            {bk.status}
+                        <td className="py-3 px-4 text-slate-500">
+                          {new Date(b.createdAt).toLocaleString("en-IN")}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            {b.status}
                           </span>
                         </td>
-                        <td className="py-2.5 text-right">
+                        <td className="py-3 px-4 text-right">
                           <button
                             type="button"
-                            onClick={() => handleTestRestore(bk.filename)}
-                            disabled={restoringBackup === bk.filename}
-                            title="Safely restore into test database rollz_pos_test to verify backup integrity without overwriting production"
-                            className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-all disabled:opacity-50 cursor-pointer"
+                            onClick={() => handleTestRestore(b.filename)}
+                            disabled={restoringBackup === b.filename}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                           >
-                            {restoringBackup === bk.filename ? "Verifying..." : "Verify Restore"}
+                            {restoringBackup === b.filename ? "Verifying..." : "Verify Restore"}
                           </button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Section 5: Restaurant Information */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
-          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-            <div className="p-2 rounded-xl bg-blue-50 text-[#2563EB] border border-blue-100">
-              <Building className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-[#172033]">Restaurant Information</h2>
-              <p className="text-xs text-[#64748B]">Brand identity and primary trading name</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Brand / Business Name</label>
-              <input
-                type="text"
-                value={restaurantName}
-                onChange={(e) => setRestaurantName(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Branch Code</label>
-              <input
-                type="text"
-                disabled
-                value={branchCode}
-                className="w-full px-3.5 py-2.5 bg-slate-100 border border-[#E2E8F0] rounded-xl text-xs font-mono font-bold text-[#2563EB] cursor-not-allowed"
-              />
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Section 6: Contact Information */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
-          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-            <div className="p-2 rounded-xl bg-emerald-50 text-[#16A34A] border border-emerald-100">
-              <Phone className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-[#172033]">Store Contact & Location</h2>
-              <p className="text-xs text-[#64748B]">Printed on bills and customer receipts</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
-            <div className="space-y-1.5 md:col-span-3">
-              <label className="text-xs font-semibold text-[#172033]">Store Address</label>
-              <input
-                type="text"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Phone Number</label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
-              />
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="text-xs font-semibold text-[#172033]">Email Address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Section 7: Tax Configuration */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
-          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-            <div className="p-2 rounded-xl bg-amber-50 text-[#D97706] border border-amber-100">
-              <Percent className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-[#172033]">Tax Configuration</h2>
-              <p className="text-xs text-[#64748B]">GST and Non-GST regulatory billing settings</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Billing Mode</label>
-              <select
-                value={taxMode}
-                onChange={(e) => {
-                  const newMode = e.target.value as "GST" | "NON_GST";
-                  setTaxMode(newMode);
-                  if (newMode === "NON_GST") {
-                    setDefaultTaxRate(0);
-                  } else {
-                    setDefaultTaxRate(5);
-                  }
-                }}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] font-semibold focus:outline-none focus:border-[#2563EB] cursor-pointer"
+      {/* Modal: Create Staff / Cashier */}
+      {isAddUserOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <form
+            onSubmit={handleCreateStaff}
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Users className="w-5 h-5 text-[#2563EB]" />
+                <span>Create New Cashier / Staff</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddUserOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
               >
-                <option value="GST">GST Mode (CGST + SGST)</option>
-                <option value="NON_GST">Non-GST Simple Bill</option>
-              </select>
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">GSTIN Number</label>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 block">Staff Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={newDisplayName}
+                  onChange={(e) => setNewDisplayName(e.target.value)}
+                  placeholder="e.g. Ramesh Kumar"
+                  className="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 block">Login Username</label>
+                <input
+                  type="text"
+                  required
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="e.g. cashier1"
+                  className="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] font-mono focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 block">Role</label>
+                <select
+                  value={newUserRole}
+                  onChange={(e) => setNewUserRole(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-xl text-xs font-bold text-[#172033] focus:outline-none focus:border-[#2563EB]"
+                >
+                  <option value="CASHIER">CASHIER (POS Billing Only)</option>
+                  <option value="MANAGER">MANAGER (POS, Stock & Reports)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 block">Initial Password / PIN</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  placeholder="Min. 6 characters"
+                  className="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsAddUserOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isCreatingUser || !newUsername || !newUserPassword}
+                className="px-5 py-2 bg-[#2563EB] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer"
+              >
+                {isCreatingUser ? "Creating..." : "Create Account"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal: Reset Staff Password */}
+      {resetTargetUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <form
+            onSubmit={handleResetStaffPassword}
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-emerald-600" />
+                <span>Reset Staff Password</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setResetTargetUser(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <p>Staff: <strong className="text-slate-900">{resetTargetUser.displayName}</strong></p>
+              <p>Username: <strong className="font-mono text-slate-800">@{resetTargetUser.username}</strong></p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700 block">New Password / PIN</label>
               <input
-                type="text"
-                disabled={taxMode === "NON_GST"}
-                value={taxMode === "NON_GST" ? "N/A (Non-GST)" : gstin}
-                onChange={(e) => setGstin(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono text-[#172033] disabled:opacity-50"
+                type="password"
+                required
+                minLength={6}
+                value={staffNewPassword}
+                onChange={(e) => setStaffNewPassword(e.target.value)}
+                placeholder="Min. 6 characters"
+                className="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB]"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Default GST Rate (%)</label>
-              <input
-                type="number"
-                disabled={taxMode === "NON_GST"}
-                value={taxMode === "NON_GST" ? 0 : defaultTaxRate}
-                onChange={(e) => setDefaultTaxRate(parseFloat(e.target.value) || 0)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono text-[#172033] disabled:opacity-50"
-              />
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setResetTargetUser(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isResettingPassword || !staffNewPassword}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 disabled:opacity-50 cursor-pointer"
+              >
+                {isResettingPassword ? "Saving..." : "Set New Password"}
+              </button>
             </div>
-
-            {taxMode === "NON_GST" ? (
-              <div className="md:col-span-3 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-[#2563EB] flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#2563EB] shrink-0" />
-                <span>
-                  <strong>Non-GST Mode Active:</strong> 0% tax is applied to orders. Customer receipts print as Simple Bills without GSTIN or CGST/SGST lines.
-                </span>
-              </div>
-            ) : (
-              <div className="md:col-span-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  <strong>GST Mode Active:</strong> Standard 5% GST (2.5% CGST + 2.5% SGST) applied to bills, with registered GSTIN printed on receipts.
-                </span>
-              </div>
-            )}
-          </div>
+          </form>
         </div>
-
-        {/* Section 8: UPI Payments & Dynamic QR Configuration */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-6">
-          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-            <div className="p-2 rounded-xl bg-blue-50 text-[#2563EB] border border-blue-100">
-              <QrCode className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-[#172033]">UPI Payments & Dynamic QR Code</h2>
-              <p className="text-xs text-[#64748B]">
-                Configure your UPI ID so customer QR codes are automatically generated for the exact order total
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-[#172033]">
-                    Your UPI ID / VPA <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. shopname@okhdfcbank or 9876543210@paytm"
-                    value={upiId}
-                    onChange={(e) => setUpiId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono font-medium text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
-                  />
-                  <p className="text-[11px] text-slate-500">
-                    Any customer scanning this QR code in GPay, PhonePe, Paytm or BHIM will send payment directly to this ID.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-[#172033]">
-                    Payee / Merchant Display Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={restaurantName || "ROLLZ Fast Food"}
-                    value={upiPayeeName}
-                    onChange={(e) => setUpiPayeeName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
-                  />
-                  <p className="text-[11px] text-slate-500">
-                    Name displayed on customer's phone during UPI payment approval.
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-                <div>
-                  <span className="font-bold text-[#172033] block">Test Scan QR Generator</span>
-                  <span className="text-slate-500">Enter a test amount to preview the live generated QR code</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-500">₹</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={testAmountRupees}
-                    onChange={(e) => setTestAmountRupees(e.target.value)}
-                    className="w-24 px-3 py-1.5 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#172033]"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span className="text-[11px] font-semibold text-slate-500">Supported UPI Apps:</span>
-                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md border border-blue-200">Google Pay</span>
-                <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded-md border border-purple-200">PhonePe</span>
-                <span className="px-2 py-0.5 bg-sky-50 text-sky-700 text-[10px] font-bold rounded-md border border-sky-200">Paytm</span>
-                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-md border border-emerald-200">BHIM UPI</span>
-                <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md border border-slate-200">Cred / All Banks</span>
-              </div>
-            </div>
-
-            {/* Live QR Preview Box */}
-            <div className="flex flex-col items-center justify-center p-5 bg-gradient-to-b from-slate-50 to-blue-50/40 border border-blue-100 rounded-2xl text-center">
-              <span className="text-xs font-bold text-blue-900 mb-2 flex items-center gap-1.5">
-                <Smartphone className="w-3.5 h-3.5 text-blue-600" />
-                <span>Live Test Preview</span>
-              </span>
-
-              {upiId.trim() ? (
-                <>
-                  <div className="p-3 bg-white rounded-xl shadow-md border border-slate-200 mb-3">
-                    <QRCodeSVG
-                      value={`upi://pay?pa=${encodeURIComponent(upiId.trim())}&pn=${encodeURIComponent(
-                        upiPayeeName.trim() || restaurantName || "Merchant"
-                      )}&am=${(parseFloat(testAmountRupees) || 1).toFixed(2)}&cu=INR&tn=TestPayment`}
-                      size={150}
-                      level="M"
-                    />
-                  </div>
-                  <div className="text-xs font-extrabold text-[#172033] mb-1">
-                    Amount: ₹{(parseFloat(testAmountRupees) || 1).toFixed(2)}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-600 bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200 max-w-full truncate">
-                    <span>{upiId.trim()}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(upiId.trim());
-                        setHasCopiedUpi(true);
-                        setTimeout(() => setHasCopiedUpi(false), 2000);
-                      }}
-                      className="text-blue-600 hover:text-blue-800 cursor-pointer ml-1"
-                    >
-                      {hasCopiedUpi ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                    </button>
-                  </div>
-                  <span className="text-[10px] text-emerald-700 font-semibold mt-1.5 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> Ready for POS checkout
-                  </span>
-                </>
-              ) : (
-                <div className="py-8 px-4 flex flex-col items-center">
-                  <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3">
-                    <QrCode className="w-8 h-8 text-slate-300" />
-                  </div>
-                  <p className="text-xs text-slate-500 font-medium">
-                    Enter your UPI ID on the left to see your live payment QR code preview
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Section 9: Receipt Header and Footer */}
-        <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
-          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-            <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-100">
-              <Receipt className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-[#172033]">Receipt Header & Footer</h2>
-              <p className="text-xs text-[#64748B]">Thermal printer customer receipt custom lines</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Receipt Header Message</label>
-              <textarea
-                rows={3}
-                value={receiptHeader}
-                onChange={(e) => setReceiptHeader(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono text-[#172033] resize-none"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[#172033]">Receipt Footer Message</label>
-              <textarea
-                rows={3}
-                value={receiptFooter}
-                onChange={(e) => setReceiptFooter(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs font-mono text-[#172033] resize-none"
-              />
-            </div>
-          </div>
-        </div>
-      </form>
+      )}
     </div>
   );
 };

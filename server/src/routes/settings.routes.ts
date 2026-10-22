@@ -7,6 +7,7 @@ import { printerService } from "../services/printer/printerService";
 import { backupService } from "../services/backupService";
 import { PrintDestinationType } from "../services/printer/printer.types";
 import { env } from "../config/env";
+import { brandingUpload, deleteBrandingImage } from "../utils/fileUpload";
 
 export const settingsRouter = Router();
 
@@ -23,6 +24,9 @@ const updateSettingsSchema = z.object({
   receiptFooter: z.string().trim().nullable().optional(),
   upiId: z.string().trim().nullable().optional(),
   upiPayeeName: z.string().trim().nullable().optional(),
+  tagline: z.string().trim().nullable().optional(),
+  logoPath: z.string().trim().nullable().optional(),
+  loginBgPath: z.string().trim().nullable().optional(),
   customerPrinterType: z.enum(["MOCK", "NETWORK_TCP"]).optional(),
   customerPrinterAddress: z.string().trim().nullable().optional(),
   customerPrinterPaperWidth: z.coerce.number().int().optional(),
@@ -106,6 +110,135 @@ settingsRouter.put("/", requireRoles([Role.OWNER, Role.MANAGER]), async (req: Au
     res.status(500).json({ error: { message: err.message || "Failed to save settings" } });
   }
 });
+
+/**
+ * POST /api/settings/logo
+ * Upload restaurant logo (replaces default logo across POS)
+ */
+settingsRouter.post(
+  "/logo",
+  requireRoles([Role.OWNER, Role.MANAGER]),
+  brandingUpload.single("logo"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.file) {
+      res.status(400).json({ error: { message: "No logo image file uploaded" } });
+      return;
+    }
+
+    const branchId = req.user!.branchId;
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+
+    // Clean up previous custom logo if one existed
+    if (branch && (branch as any).logoPath) {
+      deleteBrandingImage((branch as any).logoPath);
+    }
+
+    const logoPath = `/uploads/branding/${req.file.filename}`;
+    const updated = await prisma.branch.update({
+      where: { id: branchId },
+      data: { logoPath } as any,
+    });
+
+    res.json({
+      success: true,
+      logoPath,
+      branch: updated,
+      message: "Restaurant logo updated successfully!",
+    });
+  }
+);
+
+/**
+ * DELETE /api/settings/logo
+ * Reset logo back to default Rollz logo
+ */
+settingsRouter.delete(
+  "/logo",
+  requireRoles([Role.OWNER, Role.MANAGER]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const branchId = req.user!.branchId;
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+
+    if (branch && (branch as any).logoPath) {
+      deleteBrandingImage((branch as any).logoPath);
+    }
+
+    const updated = await prisma.branch.update({
+      where: { id: branchId },
+      data: { logoPath: null } as any,
+    });
+
+    res.json({
+      success: true,
+      branch: updated,
+      message: "Logo reset to default successfully",
+    });
+  }
+);
+
+/**
+ * POST /api/settings/login-bg
+ * Upload custom background wallpaper for login page
+ */
+settingsRouter.post(
+  "/login-bg",
+  requireRoles([Role.OWNER, Role.MANAGER]),
+  brandingUpload.single("loginBg"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.file) {
+      res.status(400).json({ error: { message: "No background image file uploaded" } });
+      return;
+    }
+
+    const branchId = req.user!.branchId;
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+
+    if (branch && (branch as any).loginBgPath) {
+      deleteBrandingImage((branch as any).loginBgPath);
+    }
+
+    const loginBgPath = `/uploads/branding/${req.file.filename}`;
+    const updated = await prisma.branch.update({
+      where: { id: branchId },
+      data: { loginBgPath } as any,
+    });
+
+    res.json({
+      success: true,
+      loginBgPath,
+      branch: updated,
+      message: "Login screen wallpaper updated successfully!",
+    });
+  }
+);
+
+/**
+ * DELETE /api/settings/login-bg
+ * Reset login wallpaper back to default
+ */
+settingsRouter.delete(
+  "/login-bg",
+  requireRoles([Role.OWNER, Role.MANAGER]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const branchId = req.user!.branchId;
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+
+    if (branch && (branch as any).loginBgPath) {
+      deleteBrandingImage((branch as any).loginBgPath);
+    }
+
+    const updated = await prisma.branch.update({
+      where: { id: branchId },
+      data: { loginBgPath: null } as any,
+    });
+
+    res.json({
+      success: true,
+      branch: updated,
+      message: "Login wallpaper reset to default",
+    });
+  }
+);
 
 /**
  * POST /api/settings/printers/test

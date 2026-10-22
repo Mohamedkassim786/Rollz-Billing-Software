@@ -88,6 +88,13 @@ export interface PaymentResultResponse {
   invoice: InvoiceRecord;
   payments: PaymentRecord[];
   printJobs: PrintJobRecord[];
+  customer?: any;
+  whatsapp?: {
+    attempted: boolean;
+    success: boolean;
+    message: string;
+    directUrl?: string;
+  };
   isDuplicate?: boolean;
 }
 

@@ -79,6 +79,9 @@ model Branch {
   receiptFooter    String?           @default("Thank you for dining with us!\nVisit again soon.")
   upiId            String?           // e.g. "rollzpos@okaxis" or merchant UPI ID
   upiPayeeName     String?           // e.g. "ROLLZ Fast Food"
+  tagline          String?           @default("Fresh • Crispy • Handcrafted")
+  logoPath         String?
+  loginBgPath      String?
   customerPrinterType        String?   @default("MOCK") // "MOCK" | "NETWORK_TCP"
   customerPrinterAddress     String?   // e.g. "192.168.1.200:9100"
   customerPrinterPaperWidth  Int       @default(80)    // 80 or 58 mm
@@ -106,6 +109,7 @@ model Branch {
   modifierRecipeIngredients ModifierRecipeIngredient[]
   cashierShifts             CashierShift[]
   cashMovements             CashMovement[]
+  customers                 Customer[]
 
   @@map("branches")
 }
@@ -256,6 +260,8 @@ model Order {
   cashierId      String
   cashier        User        @relation(fields: [cashierId], references: [id])
   tableNumber    String?
+  customerId     String?
+  customer       Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   customerName   String?
   customerPhone  String?
   notes          String?
@@ -578,5 +584,25 @@ model CashMovement {
   @@index([shiftId, type])
   @@index([branchId, createdAt])
   @@map("cash_movements")
+}
+
+model Customer {
+  id          String    @id @default(uuid())
+  branchId    String
+  branch      Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String
+  notes       String?
+  totalVisits Int       @default(1)
+  totalSpent  Int       @default(0) // Integer paise
+  lastVisitAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  orders      Order[]
+
+  @@unique([branchId, phone])
+  @@index([branchId, phone])
+  @@index([branchId, name])
+  @@map("customers")
 }
 

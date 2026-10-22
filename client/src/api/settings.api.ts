@@ -14,6 +14,9 @@ export interface BranchSettings {
   receiptFooter?: string;
   upiId?: string | null;
   upiPayeeName?: string | null;
+  tagline?: string | null;
+  logoPath?: string | null;
+  loginBgPath?: string | null;
   customerPrinterType: string;
   customerPrinterAddress?: string;
   customerPrinterPaperWidth: number;
@@ -59,6 +62,9 @@ export interface UpdateSettingsInput {
   receiptFooter?: string;
   upiId?: string | null;
   upiPayeeName?: string | null;
+  tagline?: string | null;
+  logoPath?: string | null;
+  loginBgPath?: string | null;
   customerPrinterType?: string;
   customerPrinterAddress?: string;
   customerPrinterPaperWidth?: number;
@@ -77,6 +83,38 @@ export const settingsApi = {
 
   updateSettings: async (data: UpdateSettingsInput): Promise<{ message: string; branch: BranchSettings }> => {
     const res = await apiClient.put<{ message: string; branch: BranchSettings }>("/settings", data);
+    return res.data;
+  },
+
+  uploadLogo: async (file: File): Promise<{ success: boolean; logoPath: string; message: string }> => {
+    const formData = new FormData();
+    formData.append("logo", file);
+    const res = await apiClient.post<{ success: boolean; logoPath: string; message: string }>(
+      "/settings/logo",
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+    return res.data;
+  },
+
+  deleteLogo: async (): Promise<{ success: boolean; message: string }> => {
+    const res = await apiClient.delete<{ success: boolean; message: string }>("/settings/logo");
+    return res.data;
+  },
+
+  uploadLoginBg: async (file: File): Promise<{ success: boolean; loginBgPath: string; message: string }> => {
+    const formData = new FormData();
+    formData.append("loginBg", file);
+    const res = await apiClient.post<{ success: boolean; loginBgPath: string; message: string }>(
+      "/settings/login-bg",
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } }
+    );
+    return res.data;
+  },
+
+  deleteLoginBg: async (): Promise<{ success: boolean; message: string }> => {
+    const res = await apiClient.delete<{ success: boolean; message: string }>("/settings/login-bg");
     return res.data;
   },
 

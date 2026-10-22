@@ -30,6 +30,8 @@ interface POSPaymentModalProps {
   orderType: "TAKEAWAY" | "DINE_IN";
   grandTotalPaise: number;
   itemCount: number;
+  taxTotalPaise?: number;
+  taxRateBasisPoints?: number;
   onPaymentSuccess: (result: PaymentResultResponse) => void;
 }
 
@@ -41,9 +43,16 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
   orderType,
   grandTotalPaise,
   itemCount,
+  taxTotalPaise,
+  taxRateBasisPoints,
   onPaymentSuccess,
 }) => {
   const { branch } = useAuth();
+  const isNonGst =
+    (typeof taxTotalPaise === "number" && taxTotalPaise === 0) ||
+    taxRateBasisPoints === 0 ||
+    branch?.taxMode === "NON_GST" ||
+    localStorage.getItem("rollz_pos_tax_mode") === "NON_GST";
   const [activeTab, setActiveTab] = useState<"CASH" | "UPI" | "CARD" | "SPLIT">("CASH");
 
   // Cash state (in rupees for input)
@@ -317,7 +326,7 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
           <div className="text-right">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 backdrop-blur-xs rounded-full text-xs font-medium text-blue-100 border border-white/20">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>5% GST Included</span>
+              <span>{isNonGst ? "No GST" : "5% GST Included"}</span>
             </span>
           </div>
         </div>

@@ -13,6 +13,7 @@ import {
   X,
   UtensilsCrossed,
   Image as ImageIcon,
+  Sparkles,
 } from "lucide-react";
 import { menuItemApi, MenuItem } from "../api/menuItems.api";
 import { categoryApi, Category } from "../api/categories.api";
@@ -122,11 +123,86 @@ export const MenuItemsPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const [pendingLargeFile, setPendingLargeFile] = useState<File | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
+
+  // Client-side auto-optimizer to convert large photos to crisp WebP under 1MB
+  const compressImage = (file: File): Promise<File> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(img.src);
+        const canvas = document.createElement("canvas");
+        let { width, height } = img;
+        const maxDim = 1200;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const compressed = new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), {
+                type: "image/webp",
+                lastModified: Date.now(),
+              });
+              resolve(compressed);
+            } else {
+              resolve(file);
+            }
+          },
+          "image/webp",
+          0.85
+        );
+      };
+      img.onerror = () => resolve(file);
+    });
+  };
+
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setImageFile(file);
-      setImagePreviewUrl(URL.createObjectURL(file));
+      // Check if file is larger than 2MB
+      if (file.size > 2 * 1024 * 1024) {
+        setPendingLargeFile(file);
+      } else {
+        setImageFile(file);
+        setImagePreviewUrl(URL.createObjectURL(file));
+      }
+    }
+  };
+
+  const handleConfirmLargeFile = async (optimize: boolean) => {
+    if (!pendingLargeFile) return;
+
+    if (optimize) {
+      setIsCompressing(true);
+      try {
+        const compressed = await compressImage(pendingLargeFile);
+        setImageFile(compressed);
+        setImagePreviewUrl(URL.createObjectURL(compressed));
+      } catch {
+        setImageFile(pendingLargeFile);
+        setImagePreviewUrl(URL.createObjectURL(pendingLargeFile));
+      } finally {
+        setIsCompressing(false);
+        setPendingLargeFile(null);
+      }
+    } else {
+      // Upload full original file
+      setImageFile(pendingLargeFile);
+      setImagePreviewUrl(URL.createObjectURL(pendingLargeFile));
+      setPendingLargeFile(null);
     }
   };
 
@@ -886,6 +962,66 @@ export const MenuItemsPage: React.FC = () => {
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {/* Large File Warning & Optimizer Modal (> 2MB) */}
+      {pendingLargeFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Large Image Detected</h3>
+                <p className="text-xs text-slate-500">File is larger than standard 2MB limit</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1 text-xs text-amber-900">
+              <p>
+                Selected file: <strong className="font-mono text-slate-800">{pendingLargeFile.name}</strong>
+              </p>
+              <p>
+                Size: <strong className="text-amber-800">{(pendingLargeFile.size / (1024 * 1024)).toFixed(2)} MB</strong>
+              </p>
+              <p className="text-[11px] text-amber-700 pt-1">
+                High-resolution images can slow down POS catalog loading. We recommend auto-optimizing to high-quality WebP.
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                disabled={isCompressing}
+                onClick={() => handleConfirmLargeFile(true)}
+                className="w-full py-2.5 px-4 bg-[#2563EB] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>{isCompressing ? "Optimizing..." : "Auto-Optimize & Upload (< 1MB) - Recommended"}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isCompressing}
+                onClick={() => handleConfirmLargeFile(false)}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload Original Full File ({(pendingLargeFile.size / (1024 * 1024)).toFixed(1)} MB)</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isCompressing}
+                onClick={() => setPendingLargeFile(null)}
+                className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer text-center"
+              >
+                Cancel Selection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

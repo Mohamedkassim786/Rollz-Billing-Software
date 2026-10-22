@@ -13,6 +13,7 @@ import { InvoicesPage } from "./pages/InvoicesPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { CashManagementPage } from "./pages/CashManagementPage";
 import { ReportsPage } from "./pages/ReportsPage";
+import { CRMPage } from "./pages/CRMPage";
 import { RefreshCw } from "lucide-react";
 
 const AuthenticatedApp: React.FC = () => {
@@ -44,6 +45,7 @@ const AuthenticatedApp: React.FC = () => {
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/cash-management" element={<CashManagementPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/crm" element={<CRMPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

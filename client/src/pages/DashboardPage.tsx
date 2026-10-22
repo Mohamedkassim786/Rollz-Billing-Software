@@ -7,7 +7,6 @@ import {
   Database,
   ArrowRight,
   Settings,
-  Sparkles,
   UtensilsCrossed,
   CheckCircle2,
 } from "lucide-react";
@@ -54,10 +53,6 @@ export const DashboardPage: React.FC = () => {
 
         <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-[#2563EB] text-[11px] font-bold uppercase tracking-wider">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Phase 2 • Menu Management Active</span>
-            </div>
             <h1 className="text-2xl sm:text-3xl font-black text-[#172033] tracking-tight">
               ROLLZ Restaurant Management System
             </h1>

@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { authApi } from "../api/auth.api";
 
 export const LoginPage: React.FC = () => {
-  const { isOwnerSetup, login } = useAuth();
+  const { isOwnerSetup, login, branch } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -41,11 +41,11 @@ export const LoginPage: React.FC = () => {
     <div className="min-h-screen bg-[#EAEFF5] flex items-center justify-center p-4 sm:p-6 font-sans selection:bg-blue-100 selection:text-blue-900">
       {/* Main Login Card */}
       <div className="w-full max-w-[880px] bg-white rounded-[32px] shadow-2xl border border-slate-200/80 flex flex-col md:flex-row overflow-hidden relative">
-        {/* Left Side: Gourmet Roll Image with Organic Curve */}
+        {/* Left Side: Custom Wallpaper or Default Gourmet Roll Image with Organic Curve */}
         <div className="w-full md:w-[44%] relative bg-slate-950 min-h-[260px] md:min-h-[580px] overflow-hidden flex items-center justify-center">
           <img
-            src="/login-roll.jpg"
-            alt="ROLLZ Handcrafted Wrap"
+            src={branch?.loginBgPath || "/login-roll.jpg"}
+            alt={branch?.name ? `${branch.name} Wallpaper` : "ROLLZ Handcrafted Wrap"}
             className="w-full h-full object-cover object-center absolute inset-0 select-none pointer-events-none"
           />
 
@@ -68,21 +68,21 @@ export const LoginPage: React.FC = () => {
             {/* Logo */}
             <div className="flex justify-center pt-2">
               <img
-                src="/rollz-logo.png"
-                alt="ROLLZ Logo"
-                className="h-20 sm:h-24 w-auto object-contain hover:scale-102 transition-transform"
+                src={branch?.logoPath || "/rollz-logo.png"}
+                alt={branch?.name ? `${branch.name} Logo` : "ROLLZ Logo"}
+                className="h-20 sm:h-24 max-w-[200px] w-auto object-contain hover:scale-102 transition-transform"
               />
             </div>
 
             {/* Welcome Back Header */}
             <div className="text-center space-y-1">
               <h1 className="text-2xl sm:text-[26px] font-black text-[#172033] tracking-tight">
-                Welcome Back
+                {branch?.name ? `Welcome to ${branch.name}` : "Welcome Back"}
               </h1>
               <p className="text-xs sm:text-[13px] text-[#64748B]">
                 {!isOwnerSetup
                   ? "First-Run Initial Owner Setup — Create Master Credentials"
-                  : "Sign in to your ROLLZ Restaurant POS"}
+                  : branch?.tagline || "Sign in to your ROLLZ Restaurant POS"}
               </p>
             </div>
 

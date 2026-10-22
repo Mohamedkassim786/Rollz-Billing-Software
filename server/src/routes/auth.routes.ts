@@ -19,14 +19,27 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-// Check if initial setup is complete
+// Check if initial setup is complete & return public branch branding
 authRouter.get("/status", async (_req: Request, res: Response) => {
   const ownerCount = await prisma.user.count({
     where: { role: "OWNER" },
   });
 
+  const branch = await prisma.branch.findFirst({
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      tagline: true,
+      logoPath: true,
+      loginBgPath: true,
+      taxMode: true,
+    },
+  });
+
   res.json({
     isOwnerSetup: ownerCount > 0,
+    branch: branch || null,
   });
 });
 
@@ -177,6 +190,9 @@ authRouter.post("/login", loginRateLimiter, async (req: Request, res: Response) 
       gstin: user.branch.gstin || null,
       upiId: user.branch.upiId || null,
       upiPayeeName: user.branch.upiPayeeName || null,
+      tagline: (user.branch as any).tagline || "Fresh • Crispy • Handcrafted",
+      logoPath: (user.branch as any).logoPath || null,
+      loginBgPath: (user.branch as any).loginBgPath || null,
     },
     token,
   });
@@ -215,6 +231,84 @@ authRouter.get("/me", authenticate, async (req: AuthenticatedRequest, res: Respo
       gstin: user.branch.gstin || null,
       upiId: user.branch.upiId || null,
       upiPayeeName: user.branch.upiPayeeName || null,
+      tagline: (user.branch as any).tagline || "Fresh • Crispy • Handcrafted",
+      logoPath: (user.branch as any).logoPath || null,
+      loginBgPath: (user.branch as any).loginBgPath || null,
     },
   });
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(6, "New password must be at least 6 characters"),
+});
+
+// Change Password for current logged-in user
+authRouter.post("/change-password", authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  const parse = changePasswordSchema.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: parse.error.issues[0]?.message || "Invalid password parameters",
+      },
+    });
+    return;
+  }
+
+  const { currentPassword, newPassword } = parse.data;
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.userId },
+  });
+
+  if (!user) {
+    res.status(404).json({ error: { message: "User account not found" } });
+    return;
+  }
+
+  const isValid = await verifyPassword(currentPassword, user.passwordHash);
+  if (!isValid) {
+    res.status(400).json({ error: { message: "Current password is incorrect. Please try again." } });
+    return;
+  }
+
+  const newHash = await hashPassword(newPassword);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: newHash },
+  });
+
+  res.json({ success: true, message: "Password updated successfully" });
+});
+
+// Update Profile (Display Name)
+const updateProfileSchema = z.object({
+  displayName: z.string().trim().min(2, "Display name must be at least 2 characters").max(50),
+});
+
+authRouter.patch("/profile", authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  const parse = updateProfileSchema.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: parse.error.issues[0]?.message || "Invalid profile data",
+      },
+    });
+    return;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: req.user!.userId },
+    data: { displayName: parse.data.displayName },
+    select: {
+      id: true,
+      username: true,
+      displayName: true,
+      role: true,
+      branchId: true,
+    },
+  });
+
+  res.json({ success: true, user: updated, message: "Profile updated successfully" });
 });

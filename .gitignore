@@ -33,3 +33,9 @@ server/backups/*.dump
 !server/backups/.gitkeep
 server/uploads/menu-items/*
 !server/uploads/menu-items/.gitkeep
+server/uploads/branding/*
+!server/uploads/branding/.gitkeep
+
+# WhatsApp session data
+server/whatsapp_auth/
+whatsapp_auth/

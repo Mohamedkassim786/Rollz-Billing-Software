@@ -39,6 +39,14 @@ async function startServer() {
     } catch (printRecoveryErr) {
       console.warn("⚠️ Print queue startup check warning:", printRecoveryErr);
     }
+
+    // Auto-restore WhatsApp session in background if previously authenticated
+    try {
+      const { whatsappService } = await import("./services/whatsappService");
+      whatsappService.initializeSocket().catch(() => {});
+    } catch (waStartupErr) {
+      console.warn("⚠️ WhatsApp service background init notice:", waStartupErr);
+    }
   } else {
     console.warn(`⚠️ PostgreSQL connection warning: ${dbHealth.error}`);
   }

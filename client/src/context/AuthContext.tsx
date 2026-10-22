@@ -34,7 +34,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setBranch(me.branch);
       } else {
         setUser(null);
-        setBranch(null);
+        setBranch(status.branch || null);
       }
     } catch {
       localStorage.removeItem("rollz_auth_token");

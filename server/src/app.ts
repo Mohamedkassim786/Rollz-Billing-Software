@@ -15,8 +15,11 @@ import { inventoryRouter } from "./routes/inventory.routes";
 import { shiftRouter } from "./routes/shift.routes";
 import { reportRouter } from "./routes/report.routes";
 import { settingsRouter } from "./routes/settings.routes";
+import { whatsappRouter } from "./routes/whatsapp.routes";
+import { customerRouter } from "./routes/customer.routes";
+import { userRouter } from "./routes/user.routes";
 import { env } from "./config/env";
-import { UPLOAD_ROOT } from "./utils/fileUpload";
+import { UPLOAD_ROOT, BRANDING_UPLOAD_ROOT } from "./utils/fileUpload";
 
 export const app = express();
 
@@ -63,6 +66,7 @@ app.use(express.json());
 
 // Serve local uploaded images statically
 app.use("/uploads/menu-items", express.static(UPLOAD_ROOT));
+app.use("/uploads/branding", express.static(BRANDING_UPLOAD_ROOT));
 
 // API Routes
 app.use("/api/health", healthRouter);
@@ -79,6 +83,9 @@ app.use("/api/inventory", inventoryRouter);
 app.use("/api/shifts", shiftRouter);
 app.use("/api/reports", reportRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/whatsapp", whatsappRouter);
+app.use("/api/customers", customerRouter);
+app.use("/api/users", userRouter);
 
 // Root informational endpoint
 app.get("/", (_req: Request, res: Response) => {

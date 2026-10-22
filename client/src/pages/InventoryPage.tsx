@@ -179,9 +179,6 @@ export const InventoryPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-[#172033]">Inventory & Stock Management</h1>
-            <span className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-              Phase 6 Active
-            </span>
           </div>
           <p className="text-xs text-[#64748B] mt-0.5">
             Real-time stock ledger, recipes, supplier intake, wastage tracking, and automatic sale deduction

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, Printer, RefreshCw, FileText, UtensilsCrossed, CheckCircle2 } from "lucide-react";
 import { paymentsApi, InvoiceRecord } from "../../api/payments.api";
+import { useAuth } from "../../context/AuthContext";
 
 interface ReceiptPreviewModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
   invoiceId,
   invoiceNumber,
 }) => {
+  const { branch } = useAuth();
   const [activeView, setActiveView] = useState<"CUSTOMER" | "KITCHEN">("CUSTOMER");
   const [customerText, setCustomerText] = useState<string>("");
   const [kitchenText, setKitchenText] = useState<string>("");
@@ -139,8 +141,8 @@ export const ReceiptPreviewModal: React.FC<ReceiptPreviewModalProps> = ({
               {activeView === "CUSTOMER" && (
                 <div className="flex flex-col items-center justify-center mb-1.5">
                   <img
-                    src="/rollz-logo.png"
-                    alt="ROLLZ Logo"
+                    src={branch?.logoPath || "/rollz-logo.png"}
+                    alt={branch?.name || "ROLLZ Logo"}
                     className="h-10 w-auto object-contain"
                   />
                 </div>

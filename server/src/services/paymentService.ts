@@ -4,6 +4,8 @@ import { generateCustomerReceiptText } from "./printer/receiptTemplate";
 import { generateKitchenTicketText } from "./printer/kitchenTemplate";
 import { printerService } from "./printer/printerService";
 import { inventoryService } from "./inventoryService";
+import { customerService } from "./customerService";
+import { whatsappService } from "./whatsappService";
 
 export interface PaymentTenderInput {
   method: "CASH" | "UPI" | "CARD";
@@ -189,11 +191,30 @@ export class PaymentService {
         createdPayments.push(paymentRecord);
       }
 
-      // 5b. Update Order status to finalized CONFIRMED
+      // 5a-2. Upsert customer CRM record if customer phone is provided
+      let customerRecord = null;
+      if (order.customerPhone) {
+        try {
+          customerRecord = await customerService.upsertCustomer(
+            {
+              branchId,
+              name: order.customerName || "Valued Customer",
+              phone: order.customerPhone,
+              orderSpendPaise: order.grandTotal,
+            },
+            tx
+          );
+        } catch (custErr) {
+          console.warn("Failed to upsert customer CRM record during payment:", custErr);
+        }
+      }
+
+      // 5b. Update Order status to finalized CONFIRMED and link customer
       const updatedOrder = await tx.order.update({
         where: { id: order.id },
         data: {
           status: "CONFIRMED",
+          customerId: customerRecord?.id || null,
         },
       });
 
@@ -307,6 +328,7 @@ export class PaymentService {
         order: updatedOrder,
         invoice: createdInvoice,
         payments: createdPayments,
+        customer: customerRecord,
         printJobs: [customerPrintJob, kitchenPrintJob],
       };
     });
@@ -325,9 +347,55 @@ export class PaymentService {
       where: { orderId: order.id },
     });
 
+    // 7. Post-transaction WhatsApp receipt dispatch (non-blocking)
+    let whatsappStatus: { attempted: boolean; success: boolean; message: string; directUrl?: string } = {
+      attempted: false,
+      success: false,
+      message: "",
+    };
+
+    if (order.customerPhone) {
+      whatsappStatus.attempted = true;
+      try {
+        const waResult = await whatsappService.sendOrderReceiptMessage({
+          order: {
+            orderNumber: order.orderNumber,
+            orderType: order.orderType,
+            subtotal: order.subtotal,
+            discountTotal: order.discountTotal,
+            taxTotal: order.taxTotal,
+            grandTotal: order.grandTotal,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            items: order.items.map((i: any) => ({
+              itemNameSnapshot: i.itemNameSnapshot,
+              quantity: i.quantity,
+              lineTotal: i.lineTotal,
+              kitchenNotes: i.kitchenNotes,
+            })),
+          },
+          invoice: result.invoice,
+          branch: order.branch,
+          customer: result.customer,
+          paymentMethod: result.payments.map((p: any) => p.method).join(", "),
+        });
+
+        whatsappStatus.success = waResult.success;
+        whatsappStatus.message = waResult.success ? "Message delivered via WhatsApp" : (waResult.error || "Offline");
+      } catch (waErr: any) {
+        console.error("WhatsApp dispatch error:", waErr);
+        whatsappStatus.message = waErr.message || "Failed to send message";
+      }
+
+      // Generate fallback direct link
+      const fallbackText = `Hello! Here is your bill from ${order.branch.name || "Rollz"}: Invoice #${result.invoice.invoiceNumber}, Total: ₹${(order.grandTotal / 100).toFixed(2)}. Thank you for dining with us!`;
+      whatsappStatus.directUrl = whatsappService.generateDirectWhatsAppLink(order.customerPhone, fallbackText);
+    }
+
     return {
       ...result,
       printJobs: refreshedPrintJobs,
+      whatsapp: whatsappStatus,
     };
   }
 }

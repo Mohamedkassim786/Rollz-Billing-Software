@@ -18,6 +18,7 @@ import {
   X,
   Database,
   ChevronRight,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { apiClient } from "../../api/client";
@@ -83,16 +84,24 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const navItems = [
+  interface NavItem {
+    label: string;
+    path: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge?: string;
+  }
+
+  const navItems: NavItem[] = [
     { label: "Dashboard", path: "/", icon: LayoutDashboard },
-    { label: "POS Terminal", path: "/pos", icon: UtensilsCrossed, badge: "Active" },
+    { label: "POS Terminal", path: "/pos", icon: UtensilsCrossed },
     { label: "Menu Categories", path: "/categories", icon: Tags },
     { label: "Menu Items", path: "/menu-items", icon: Layers },
     { label: "Modifiers & Add-ons", path: "/modifiers", icon: Sliders },
-    { label: "Orders & Receipts", path: "/orders", icon: Receipt, badge: "Active" },
-    { label: "Inventory", path: "/inventory", icon: Boxes, badge: "Active" },
-    { label: "Cash Management", path: "/cash-management", icon: Banknote, badge: "Active" },
-    { label: "Reports & Sales", path: "/reports", icon: BarChart3, badge: "Active" },
+    { label: "Orders & Receipts", path: "/orders", icon: Receipt },
+    { label: "Inventory", path: "/inventory", icon: Boxes },
+    { label: "Cash Management", path: "/cash-management", icon: Banknote },
+    { label: "Reports & Sales", path: "/reports", icon: BarChart3 },
+    { label: "CRM & WhatsApp", path: "/crm", icon: MessageSquare },
     { label: "Restaurant Settings", path: "/settings", icon: Settings },
   ];
 
@@ -120,21 +129,25 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       >
         {/* Brand Header */}
         <div className="p-4 px-5 border-b border-white/10 flex items-center justify-between shrink-0">
-          <Link to="/" className="flex items-center gap-3 group">
-            <div className="bg-white/95 p-1 rounded-xl shadow-xs">
+          <Link to="/" className="flex items-center gap-3 group overflow-hidden">
+            <div className="bg-white/95 p-1 rounded-xl shadow-xs shrink-0 flex items-center justify-center min-w-[38px] min-h-[38px]">
               <img
-                src="/rollz-logo.png"
-                alt="ROLLZ Restaurant POS"
-                className="h-9 w-auto object-contain group-hover:scale-105 transition-transform"
+                src={branch?.logoPath || "/rollz-logo.png"}
+                alt={branch?.name || "ROLLZ Restaurant POS"}
+                className="h-8 max-w-[36px] w-auto object-contain group-hover:scale-105 transition-transform"
               />
             </div>
-            <div>
-              <div className="font-extrabold text-base tracking-tight text-white flex items-center gap-1">
-                <span>ROLLZ</span>
-                <span className="text-blue-300">POS</span>
+            <div className="overflow-hidden">
+              <div className="font-extrabold text-base tracking-tight text-white flex items-center gap-1 truncate">
+                <span>{branch?.name ? branch.name.split(" ")[0] : "ROLLZ"}</span>
+                <span className="text-blue-300">
+                  {branch?.name && branch.name.split(" ").length > 1
+                    ? branch.name.split(" ").slice(1).join(" ")
+                    : "POS"}
+                </span>
               </div>
-              <p className="text-[11px] text-blue-200/80 font-medium truncate max-w-[120px]">
-                {branch?.name || "ROLLZ Main Branch"}
+              <p className="text-[11px] text-blue-200/80 font-medium truncate max-w-[130px]">
+                {branch?.tagline || branch?.name || "Main Branch"}
               </p>
             </div>
           </Link>
