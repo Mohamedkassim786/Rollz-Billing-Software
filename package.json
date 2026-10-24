@@ -15,6 +15,7 @@
     "build:client": "npm --prefix client run build",
     "build": "npm run build:server && npm run build:client",
     "db:push": "npm --prefix server run prisma:push",
-    "db:generate": "npm --prefix server run prisma:generate"
+    "db:generate": "npm --prefix server run prisma:generate",
+    "reset:sales": "npm --prefix server run reset:sales"
   }
 }
