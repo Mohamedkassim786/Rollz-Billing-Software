@@ -57,6 +57,9 @@ echo - Dynamic Store Logo & Login Wallpaper Customization
 echo - Staff & Cashier Account Creation & Password Reset
 echo - Dynamic UPI QR Code Scanner in Settings
 echo - Menu Photo 15MB Uploads & Client-side Optimizer
+echo - Fixed Modifier Customizer (Extra Cheese & Add-ons selection)
+echo - Menu Sorting by Code (#01-#99) and ABCD Alphabetical Order
+echo - Locked Cart Layout & Clean Customer Menu Screen
 echo.
 echo You can now launch the software using ROLLZ-POS-Launcher.bat
 echo or your desktop shortcut!

@@ -20,9 +20,11 @@ interface POSCustomizerModalProps {
   }) => void;
 }
 
+const EMPTY_MODIFIERS: SelectedModifierInput[] = [];
+
 export const POSCustomizerModal: React.FC<POSCustomizerModalProps> = ({
   item,
-  initialModifiers = [],
+  initialModifiers = EMPTY_MODIFIERS,
   initialKitchenNotes = "",
   initialQuantity = 1,
   isOpen,
@@ -34,21 +36,23 @@ export const POSCustomizerModal: React.FC<POSCustomizerModalProps> = ({
   const [quantity, setQuantity] = useState(1);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Initialize modal state on open or item change
+  // Initialize modal state only on open or item change
   useEffect(() => {
     if (item && isOpen) {
       const initialMap: Record<string, string[]> = {};
-      for (const sm of initialModifiers) {
-        const current = initialMap[sm.modifierGroupId] || [];
-        current.push(sm.optionId);
-        initialMap[sm.modifierGroupId] = current;
+      if (initialModifiers && initialModifiers.length > 0) {
+        for (const sm of initialModifiers) {
+          const current = initialMap[sm.modifierGroupId] || [];
+          current.push(sm.optionId);
+          initialMap[sm.modifierGroupId] = current;
+        }
       }
       setSelectedModifiers(initialMap);
-      setKitchenNotes(initialKitchenNotes);
+      setKitchenNotes(initialKitchenNotes || "");
       setQuantity(initialQuantity > 0 ? initialQuantity : 1);
       setValidationError(null);
     }
-  }, [item, isOpen, initialModifiers, initialKitchenNotes, initialQuantity]);
+  }, [item?.id, isOpen]);
 
   if (!isOpen || !item) return null;
 
@@ -61,6 +65,10 @@ export const POSCustomizerModal: React.FC<POSCustomizerModalProps> = ({
       const current = prev[group.id] || [];
 
       if (group.selectionType === "SINGLE") {
+        // If optional and already selected, clicking it again unselects it
+        if (!group.isRequired && current.includes(optionId)) {
+          return { ...prev, [group.id]: [] };
+        }
         return { ...prev, [group.id]: [optionId] };
       } else {
         // MULTIPLE
@@ -197,20 +205,21 @@ export const POSCustomizerModal: React.FC<POSCustomizerModalProps> = ({
                     const isSelected = selectedIds.includes(option.id);
 
                     return (
-                      <div
+                      <button
                         key={option.id}
+                        type="button"
                         onClick={() => handleToggleOption(group, option.id)}
-                        className={`p-3 rounded-xl border text-xs flex items-center justify-between transition-all cursor-pointer ${
+                        className={`w-full p-3 rounded-xl border text-xs flex items-center justify-between text-left transition-all cursor-pointer select-none ${
                           isSelected
-                            ? "bg-blue-50/80 border-[#2563EB] text-[#2563EB] font-bold shadow-xs"
-                            : "bg-white border-slate-200 text-[#172033] hover:bg-slate-50"
+                            ? "bg-blue-50/90 border-[#2563EB] text-[#2563EB] font-bold shadow-xs ring-1 ring-blue-500/20"
+                            : "bg-white border-slate-200 text-[#172033] hover:bg-slate-50 hover:border-slate-300"
                         }`}
                       >
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
                           <div
-                            className={`w-4 h-4 rounded-${
-                              group.selectionType === "SINGLE" ? "full" : "md"
-                            } border flex items-center justify-center shrink-0 ${
+                            className={`w-4 h-4 ${
+                              group.selectionType === "SINGLE" ? "rounded-full" : "rounded-md"
+                            } border flex items-center justify-center shrink-0 transition-colors ${
                               isSelected
                                 ? "bg-[#2563EB] border-[#2563EB] text-white"
                                 : "border-slate-300 bg-white"
@@ -218,13 +227,15 @@ export const POSCustomizerModal: React.FC<POSCustomizerModalProps> = ({
                           >
                             {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                           </div>
-                          <span>{option.name}</span>
+                          <span className="truncate">{option.name}</span>
                         </div>
 
-                        <span className="font-mono text-[11px] text-[#16A34A] shrink-0 ml-2">
+                        <span className={`font-mono text-[11px] shrink-0 ml-2 font-semibold ${
+                          isSelected ? "text-[#1d4ed8]" : "text-[#16A34A]"
+                        }`}>
                           {option.extraPrice === 0 ? "Free" : `+${formatPaise(option.extraPrice)}`}
                         </span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

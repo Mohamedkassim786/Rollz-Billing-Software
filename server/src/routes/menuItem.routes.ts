@@ -66,7 +66,7 @@ menuItemRouter.get("/", authenticate, async (req: AuthenticatedRequest, res: Res
 
   const items = await db.menuItem.findMany({
     where,
-    orderBy: [{ category: { displayOrder: "asc" } }, { displayOrder: "asc" }, { name: "asc" }],
+    orderBy: [{ category: { displayOrder: "asc" } }, { itemCode: "asc" }, { displayOrder: "asc" }, { name: "asc" }],
     include: {
       category: {
         select: { id: true, name: true, slug: true, isActive: true },

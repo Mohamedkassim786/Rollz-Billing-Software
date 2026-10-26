@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plus,
   Search,
@@ -14,6 +14,9 @@ import {
   UtensilsCrossed,
   Image as ImageIcon,
   Sparkles,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { menuItemApi, MenuItem } from "../api/menuItems.api";
 import { categoryApi, Category } from "../api/categories.api";
@@ -23,12 +26,21 @@ import { ConfirmModal } from "../components/Common/ConfirmModal";
 import { ItemPreviewModal } from "./ItemPreviewModal";
 import { formatPaise, paiseToRupees, rupeesToPaise } from "../utils/currency";
 
+export type SortOption =
+  | "CODE_ASC"
+  | "CODE_DESC"
+  | "NAME_ASC"
+  | "NAME_DESC"
+  | "PRICE_ASC"
+  | "PRICE_DESC";
+
 export const MenuItemsPage: React.FC = () => {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroup[]>([]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("ALL");
   const [availabilityFilter, setAvailabilityFilter] = useState<string>("ALL");
+  const [sortBy, setSortBy] = useState<SortOption>("CODE_ASC");
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -328,23 +340,50 @@ export const MenuItemsPage: React.FC = () => {
     }
   };
 
-  // Filter items
-  const filteredItems = items.filter((item) => {
-    const matchesSearch =
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      (item.itemCode && item.itemCode.toLowerCase().includes(search.toLowerCase())) ||
-      (item.description && item.description.toLowerCase().includes(search.toLowerCase()));
+  // Filter and sort items
+  const filteredItems = useMemo(() => {
+    return items
+      .filter((item) => {
+        const matchesSearch =
+          item.name.toLowerCase().includes(search.toLowerCase()) ||
+          (item.itemCode && item.itemCode.toLowerCase().includes(search.toLowerCase())) ||
+          (item.description && item.description.toLowerCase().includes(search.toLowerCase()));
 
-    const matchesCategory =
-      selectedCategoryFilter === "ALL" || item.categoryId === selectedCategoryFilter;
+        const matchesCategory =
+          selectedCategoryFilter === "ALL" || item.categoryId === selectedCategoryFilter;
 
-    const matchesAvailability =
-      availabilityFilter === "ALL" ||
-      (availabilityFilter === "AVAILABLE" && item.isAvailable) ||
-      (availabilityFilter === "UNAVAILABLE" && !item.isAvailable);
+        const matchesAvailability =
+          availabilityFilter === "ALL" ||
+          (availabilityFilter === "AVAILABLE" && item.isAvailable) ||
+          (availabilityFilter === "UNAVAILABLE" && !item.isAvailable);
 
-    return matchesSearch && matchesCategory && matchesAvailability;
-  });
+        return matchesSearch && matchesCategory && matchesAvailability;
+      })
+      .sort((a, b) => {
+        switch (sortBy) {
+          case "CODE_ASC": {
+            const codeA = a.itemCode || a.id;
+            const codeB = b.itemCode || b.id;
+            return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: "base" });
+          }
+          case "CODE_DESC": {
+            const codeA = a.itemCode || a.id;
+            const codeB = b.itemCode || b.id;
+            return codeB.localeCompare(codeA, undefined, { numeric: true, sensitivity: "base" });
+          }
+          case "NAME_ASC": // "in abcd order"
+            return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+          case "NAME_DESC":
+            return b.name.localeCompare(a.name, undefined, { sensitivity: "base" });
+          case "PRICE_ASC":
+            return a.basePrice - b.basePrice;
+          case "PRICE_DESC":
+            return b.basePrice - a.basePrice;
+          default:
+            return 0;
+        }
+      });
+  }, [items, search, selectedCategoryFilter, availabilityFilter, sortBy]);
 
   return (
     <div className="space-y-6">
@@ -399,7 +438,7 @@ export const MenuItemsPage: React.FC = () => {
           />
         </div>
 
-        {/* Category & Availability Filters */}
+        {/* Category, Availability & Sort Filters */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Category Filter */}
           <select
@@ -425,6 +464,23 @@ export const MenuItemsPage: React.FC = () => {
             <option value="AVAILABLE">Available Only</option>
             <option value="UNAVAILABLE">Unavailable Only</option>
           </select>
+
+          {/* Sort Order Selector (ABCD / Code ID / Price) */}
+          <div className="flex items-center gap-1.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-2.5 py-1 text-xs">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="bg-transparent text-[#172033] font-medium text-xs focus:outline-none cursor-pointer py-1"
+            >
+              <option value="CODE_ASC">Sort: Code / ID (#01 → #99)</option>
+              <option value="NAME_ASC">Sort: Name (A → Z / ABCD)</option>
+              <option value="NAME_DESC">Sort: Name (Z → A)</option>
+              <option value="PRICE_ASC">Sort: Price (Low → High)</option>
+              <option value="PRICE_DESC">Sort: Price (High → Low)</option>
+              <option value="CODE_DESC">Sort: Code / ID (#99 → #01)</option>
+            </select>
+          </div>
 
           {/* Refresh Button */}
           <button
@@ -457,12 +513,46 @@ export const MenuItemsPage: React.FC = () => {
         <div className="bg-white border border-[#E2E8F0] rounded-2xl overflow-hidden shadow-card">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] font-bold uppercase tracking-wider text-[11px]">
+              <thead className="bg-[#F8FAFC] border-b border-[#E2E8F0] text-[#64748B] font-bold uppercase tracking-wider text-[11px] select-none">
                 <tr>
                   <th className="py-3.5 px-4 w-16">Image</th>
-                  <th className="py-3.5 px-4">Item Name</th>
+                  <th
+                    onClick={() =>
+                      setSortBy((prev) => (prev === "NAME_ASC" ? "NAME_DESC" : "NAME_ASC"))
+                    }
+                    className="py-3.5 px-4 cursor-pointer hover:text-[#2563EB] transition-colors"
+                    title="Click to sort by Name (A-Z / ABCD)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Item Name</span>
+                      {sortBy === "NAME_ASC" ? (
+                        <ArrowUp className="w-3 h-3 text-[#2563EB]" />
+                      ) : sortBy === "NAME_DESC" ? (
+                        <ArrowDown className="w-3 h-3 text-[#2563EB]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </th>
                   <th className="py-3.5 px-4">Category</th>
-                  <th className="py-3.5 px-4 font-mono">Price</th>
+                  <th
+                    onClick={() =>
+                      setSortBy((prev) => (prev === "PRICE_ASC" ? "PRICE_DESC" : "PRICE_ASC"))
+                    }
+                    className="py-3.5 px-4 font-mono cursor-pointer hover:text-[#2563EB] transition-colors"
+                    title="Click to sort by Price"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Price</span>
+                      {sortBy === "PRICE_ASC" ? (
+                        <ArrowUp className="w-3 h-3 text-[#2563EB]" />
+                      ) : sortBy === "PRICE_DESC" ? (
+                        <ArrowDown className="w-3 h-3 text-[#2563EB]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </th>
                   <th className="py-3.5 px-4 text-center">Availability</th>
                   <th className="py-3.5 px-4 text-center">Status</th>
                   <th className="py-3.5 px-4">Modifiers</th>

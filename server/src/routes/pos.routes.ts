@@ -88,7 +88,7 @@ posRouter.get("/menu-items", authenticate, async (req: AuthenticatedRequest, res
   try {
     const items = await db.menuItem.findMany({
       where,
-      orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+      orderBy: [{ itemCode: "asc" }, { displayOrder: "asc" }, { name: "asc" }],
       include: {
         category: {
           select: {

@@ -19,6 +19,7 @@ import {
   Database,
   ChevronRight,
   MessageSquare,
+  Monitor,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { apiClient } from "../../api/client";
@@ -26,11 +27,23 @@ import { apiClient } from "../../api/client";
 export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, branch, logout } = useAuth();
   const location = useLocation();
+  const isPosPage = location.pathname === "/pos";
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCustomerMode, setIsCustomerMode] = useState<boolean>(() => {
+    return localStorage.getItem("rollz_customer_screen_mode") === "true";
+  });
   const [dbStatus, setDbStatus] = useState<{ connected: boolean; latencyMs?: number }>({
     connected: true,
   });
   const [currentTime, setCurrentTime] = useState("");
+
+  const toggleCustomerMode = () => {
+    setIsCustomerMode((prev) => {
+      const next = !prev;
+      localStorage.setItem("rollz_customer_screen_mode", String(next));
+      return next;
+    });
+  };
 
   // Live Asia/Kolkata Clock
   useEffect(() => {
@@ -112,7 +125,7 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F7FB] text-[#172033] flex flex-col md:flex-row font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className={`${isPosPage ? "h-screen overflow-hidden" : "min-h-screen"} bg-[#F5F7FB] text-[#172033] flex flex-col md:flex-row font-sans selection:bg-blue-100 selection:text-blue-900`}>
       {/* Mobile Drawer Backdrop */}
       {isMobileMenuOpen && (
         <div
@@ -123,8 +136,12 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed md:sticky md:top-0 md:h-screen md:self-start inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-[#1E40AF] via-[#1E3A8A] to-[#172554] border-r border-blue-900/40 flex flex-col shrink-0 shadow-lg transition-transform duration-200 ease-in-out md:translate-x-0 ${
-          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed md:sticky md:top-0 md:h-screen md:self-start inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-[#1E40AF] via-[#1E3A8A] to-[#172554] border-r border-blue-900/40 flex flex-col shrink-0 shadow-lg transition-all duration-200 ease-in-out ${
+          isPosPage && isCustomerMode
+            ? "hidden"
+            : isMobileMenuOpen
+            ? "translate-x-0"
+            : "-translate-x-full md:translate-x-0"
         }`}
       >
         {/* Brand Header */}
@@ -236,66 +253,128 @@ export const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children })
       </aside>
 
       {/* Main Content Viewport */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={`flex-1 flex flex-col min-w-0 ${isPosPage ? "h-screen overflow-hidden" : ""}`}>
         {/* Top Header Bar */}
-        <header className="bg-white border-b border-[#E2E8F0] px-4 sm:px-8 py-3.5 flex items-center justify-between sticky top-0 z-30 shadow-xs">
-          {/* Left: Mobile hamburger & breadcrumbs */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="md:hidden p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-1.5 text-xs">
-              <Link to="/" className="text-slate-400 hover:text-[#2563EB] font-medium">
-                ROLLZ POS
-              </Link>
-              <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
-              <span className="font-bold text-[#172033]">{getCurrentPageTitle()}</span>
-            </div>
-          </div>
-
-          {/* Right: Local IST Time & Real Database Status */}
-          <div className="flex items-center gap-3 sm:gap-4 text-xs">
-            {/* Live Clock Asia/Kolkata */}
-            <div className="hidden sm:flex items-center gap-1.5 text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] px-3 py-1.5 rounded-xl font-medium">
-              <Clock className="w-3.5 h-3.5 text-[#2563EB]" />
-              <span className="font-mono text-[11px]">{currentTime || "IST"}</span>
-              <span className="text-[10px] text-slate-400 font-bold uppercase">(IST)</span>
-            </div>
-
-            {/* Database indicator */}
-            <div className="flex items-center gap-2 bg-[#F8FAFC] border border-[#E2E8F0] px-3 py-1.5 rounded-xl">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  dbStatus.connected ? "bg-emerald-500 animate-pulse" : "bg-red-500"
-                }`}
-              ></span>
-              <span className="text-[#172033] font-semibold text-[11px] flex items-center gap-1">
-                <Database className="w-3 h-3 text-slate-400 inline" />
-                <span>{dbStatus.connected ? "Local DB Online" : "DB Offline"}</span>
-                {dbStatus.latencyMs !== undefined && (
-                  <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
-                    ({dbStatus.latencyMs}ms)
-                  </span>
-                )}
-              </span>
-            </div>
-
-            {/* User pill */}
-            <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-slate-200">
-              <div className="w-7 h-7 rounded-full bg-slate-100 text-[#2563EB] font-bold text-xs flex items-center justify-center border border-slate-200">
-                {user?.displayName ? user.displayName.charAt(0).toUpperCase() : "A"}
+        <header className="bg-white border-b border-[#E2E8F0] px-4 sm:px-6 py-2.5 flex items-center justify-between sticky top-0 z-30 shadow-xs shrink-0">
+          {isPosPage && isCustomerMode ? (
+            /* Customer-Facing Brand Header */
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-3">
+                <div className="bg-white p-1 rounded-xl shadow-xs border border-slate-200 shrink-0">
+                  <img
+                    src={branch?.logoPath || "/rollz-logo.png"}
+                    alt={branch?.name || "ROLLZ Logo"}
+                    className="h-8 max-w-[36px] w-auto object-contain"
+                  />
+                </div>
+                <div>
+                  <h1 className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight flex items-center gap-1.5">
+                    <span>{branch?.name || "ROLLZ FAST FOOD"}</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                      Live Customer Menu
+                    </span>
+                  </h1>
+                  <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium">
+                    {branch?.tagline || "Fresh • Crispy • Handcrafted Rolls & Burgers"}
+                  </p>
+                </div>
               </div>
-              <span className="text-xs font-semibold text-[#172033]">{user?.displayName}</span>
+
+              <div className="flex items-center gap-2.5">
+                <div className="hidden sm:flex items-center gap-1.5 text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl text-xs font-mono">
+                  <Clock className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{currentTime || "IST"}</span>
+                </div>
+
+                <button
+                  onClick={toggleCustomerMode}
+                  title="Return to Staff Admin View"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-300 transition-all cursor-pointer shadow-xs"
+                >
+                  <Monitor className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Exit Customer View (Admin)</span>
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Standard Admin Header */
+            <>
+              {/* Left: Mobile hamburger & breadcrumbs */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsMobileMenuOpen(true)}
+                  className="md:hidden p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  <Menu className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center gap-1.5 text-xs">
+                  <Link to="/" className="text-slate-400 hover:text-[#2563EB] font-medium">
+                    ROLLZ POS
+                  </Link>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+                  <span className="font-bold text-[#172033]">{getCurrentPageTitle()}</span>
+                </div>
+              </div>
+
+              {/* Right: Actions, Live Clock, DB Status & Customer Mode Button */}
+              <div className="flex items-center gap-2.5 sm:gap-3 text-xs">
+                {isPosPage && (
+                  <button
+                    onClick={toggleCustomerMode}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition-all cursor-pointer shadow-xs"
+                    title="Switch to clean full-screen customer display"
+                  >
+                    <Monitor className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Customer Monitor View</span>
+                  </button>
+                )}
+
+                {/* Live Clock Asia/Kolkata */}
+                <div className="hidden sm:flex items-center gap-1.5 text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] px-3 py-1.5 rounded-xl font-medium">
+                  <Clock className="w-3.5 h-3.5 text-[#2563EB]" />
+                  <span className="font-mono text-[11px]">{currentTime || "IST"}</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">(IST)</span>
+                </div>
+
+                {/* Database indicator */}
+                <div className="flex items-center gap-2 bg-[#F8FAFC] border border-[#E2E8F0] px-3 py-1.5 rounded-xl">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      dbStatus.connected ? "bg-emerald-500 animate-pulse" : "bg-red-500"
+                    }`}
+                  ></span>
+                  <span className="text-[#172033] font-semibold text-[11px] flex items-center gap-1">
+                    <Database className="w-3 h-3 text-slate-400 inline" />
+                    <span>{dbStatus.connected ? "Local DB Online" : "DB Offline"}</span>
+                    {dbStatus.latencyMs !== undefined && (
+                      <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
+                        ({dbStatus.latencyMs}ms)
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                {/* User pill */}
+                <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-slate-200">
+                  <div className="w-7 h-7 rounded-full bg-slate-100 text-[#2563EB] font-bold text-xs flex items-center justify-center border border-slate-200">
+                    {user?.displayName ? user.displayName.charAt(0).toUpperCase() : "A"}
+                  </div>
+                  <span className="text-xs font-semibold text-[#172033]">{user?.displayName}</span>
+                </div>
+              </div>
+            </>
+          )}
         </header>
 
         {/* Page Body */}
-        <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6 sm:space-y-8 overflow-y-auto">
+        <main
+          className={`flex-1 ${
+            isPosPage
+              ? "p-0 max-w-none w-full min-h-0 h-full overflow-hidden"
+              : "p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6 sm:space-y-8 overflow-y-auto"
+          }`}
+        >
           {children}
         </main>
       </div>

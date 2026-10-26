@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Search,
-  UtensilsCrossed,
   ShoppingCart,
   Plus,
   Trash2,
@@ -11,14 +10,15 @@ import {
   AlertCircle,
   RefreshCw,
   FolderOpen,
-  ArrowRight,
   X,
-  CreditCard,
   Sliders,
   FileText,
   Phone,
   User,
   MessageSquare,
+  ArrowUpDown,
+  CreditCard,
+  ArrowRight,
 } from "lucide-react";
 import { posApi, POSCategory, POSMenuItem } from "../api/pos.api";
 import { orderApi, OrderItemInput, CalculationResult, OrderRecord, SelectedModifierInput } from "../api/orders.api";
@@ -40,6 +40,111 @@ interface CartLine {
   quantity: number;
 }
 
+// Visual theme helper for food categories (emojis, gourmet gradients, accents)
+const getCategoryVisual = (categoryName: string) => {
+  const name = (categoryName || "").toLowerCase();
+  if (name.includes("roll")) {
+    return {
+      emoji: "🌯",
+      gradient: "from-amber-500 via-orange-500 to-amber-600",
+      accent: "text-amber-600",
+      bgLight: "bg-amber-50",
+    };
+  }
+  if (name.includes("burger")) {
+    return {
+      emoji: "🍔",
+      gradient: "from-orange-500 via-red-500 to-rose-600",
+      accent: "text-orange-600",
+      bgLight: "bg-orange-50",
+    };
+  }
+  if (name.includes("fries") || name.includes("loaded")) {
+    return {
+      emoji: "🍟",
+      gradient: "from-amber-400 via-yellow-500 to-orange-500",
+      accent: "text-yellow-600",
+      bgLight: "bg-yellow-50",
+    };
+  }
+  if (name.includes("grill")) {
+    return {
+      emoji: "🔥",
+      gradient: "from-red-600 via-rose-600 to-orange-600",
+      accent: "text-red-600",
+      bgLight: "bg-red-50",
+    };
+  }
+  if (name.includes("kebab") || name.includes("tikka") || name.includes("seekh")) {
+    return {
+      emoji: "🍢",
+      gradient: "from-rose-600 via-red-600 to-amber-700",
+      accent: "text-rose-600",
+      bgLight: "bg-rose-50",
+    };
+  }
+  if (name.includes("beverage") || name.includes("drink") || name.includes("coffee") || name.includes("lemonade") || name.includes("tea") || name.includes("shake")) {
+    return {
+      emoji: "🥤",
+      gradient: "from-cyan-500 via-blue-500 to-indigo-600",
+      accent: "text-cyan-600",
+      bgLight: "bg-cyan-50",
+    };
+  }
+  if (name.includes("sandwich")) {
+    return {
+      emoji: "🥪",
+      gradient: "from-amber-500 via-yellow-600 to-amber-700",
+      accent: "text-amber-600",
+      bgLight: "bg-amber-50",
+    };
+  }
+  if (name.includes("starter") || name.includes("appetizer")) {
+    return {
+      emoji: "🥟",
+      gradient: "from-emerald-500 via-teal-500 to-emerald-700",
+      accent: "text-emerald-600",
+      bgLight: "bg-emerald-50",
+    };
+  }
+  if (name.includes("combo")) {
+    return {
+      emoji: "🍱",
+      gradient: "from-purple-500 via-violet-600 to-indigo-600",
+      accent: "text-purple-600",
+      bgLight: "bg-purple-50",
+    };
+  }
+  return {
+    emoji: "🍽️",
+    gradient: "from-blue-600 via-indigo-600 to-slate-800",
+    accent: "text-blue-600",
+    bgLight: "bg-blue-50",
+  };
+};
+
+// Check if a dish is non-vegetarian based on keywords
+const isNonVegDish = (item: POSMenuItem): boolean => {
+  const text = `${item.name} ${item.category?.name || ""} ${item.description || ""}`.toLowerCase();
+  const nonVegKeywords = [
+    "chicken",
+    "mutton",
+    "seekh",
+    "kebab",
+    "fish",
+    "prawn",
+    "egg",
+    "meat",
+    "beef",
+    "wings",
+    "fajita",
+    "zinger",
+    "shawarma",
+    "pepperoni",
+  ];
+  return nonVegKeywords.some((kw) => text.includes(kw));
+};
+
 export const POSTerminalPage: React.FC = () => {
   const { branch } = useAuth();
   const isNonGst = branch?.taxMode === "NON_GST" || localStorage.getItem("rollz_pos_tax_mode") === "NON_GST";
@@ -48,6 +153,7 @@ export const POSTerminalPage: React.FC = () => {
   const [menuItems, setMenuItems] = useState<POSMenuItem[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [posSortBy, setPosSortBy] = useState<"CODE" | "NAME">("CODE");
   const [isLoadingMenu, setIsLoadingMenu] = useState(true);
   const [menuError, setMenuError] = useState<string | null>(null);
 
@@ -187,22 +293,32 @@ export const POSTerminalPage: React.FC = () => {
     };
   }, [cart, orderType]);
 
-  // Filtered Menu Items
+  // Filtered Menu Items (Default sorted by Code / ID, or Alphabetical A-Z)
   const filteredMenuItems = useMemo(() => {
-    return menuItems.filter((item) => {
-      const matchesCategory =
-        selectedCategoryId === "ALL" || item.categoryId === selectedCategoryId;
+    return menuItems
+      .filter((item) => {
+        const matchesCategory =
+          selectedCategoryId === "ALL" || item.categoryId === selectedCategoryId;
 
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch =
-        !q ||
-        item.name.toLowerCase().includes(q) ||
-        (item.itemCode && item.itemCode.toLowerCase().includes(q)) ||
-        (item.description && item.description.toLowerCase().includes(q));
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch =
+          !q ||
+          item.name.toLowerCase().includes(q) ||
+          (item.itemCode && item.itemCode.toLowerCase().includes(q)) ||
+          (item.description && item.description.toLowerCase().includes(q));
 
-      return matchesCategory && matchesSearch;
-    });
-  }, [menuItems, selectedCategoryId, searchQuery]);
+        return matchesCategory && matchesSearch;
+      })
+      .sort((a, b) => {
+        if (posSortBy === "NAME") {
+          return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        }
+        // Default: Sort by Code / ID (#BGR-01, #BGR-02, etc.)
+        const codeA = a.itemCode || a.id;
+        const codeB = b.itemCode || b.id;
+        return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: "base" });
+      });
+  }, [menuItems, selectedCategoryId, searchQuery, posSortBy]);
 
   // Handle Item Selection from Catalog Grid
   const handleSelectItem = (item: POSMenuItem) => {
@@ -489,8 +605,15 @@ export const POSTerminalPage: React.FC = () => {
     return "Custom Option";
   };
 
+  // Helper to get total quantity of an item currently in the cart
+  const getCartQuantityForItem = (itemId: string): number => {
+    return cart
+      .filter((line) => line.item.id === itemId)
+      .reduce((sum, line) => sum + line.quantity, 0);
+  };
+
   return (
-    <div className="flex flex-col h-[calc(100vh-5rem)] -m-4 sm:-m-6 md:-m-8 bg-[#F5F7FB] overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-[#F5F7FB] overflow-hidden select-none">
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -509,82 +632,22 @@ export const POSTerminalPage: React.FC = () => {
         </div>
       )}
 
-      {/* POS Three-Column Workspace */}
+      {/* POS Main Workspace (Full width, no cramped vertical aside) */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
         {/* ========================================================= */}
-        {/* LEFT COLUMN: Food Category Navigation (~180px)            */}
+        {/* CENTER/MAIN COLUMN: Food Catalog Grid with Horizontal Tabs */}
         {/* ========================================================= */}
-        <aside className="w-full lg:w-48 bg-white border-r border-[#E2E8F0] flex flex-col shrink-0 overflow-y-auto shadow-xs">
-          <div className="p-3 border-b border-[#E2E8F0] flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
-              Categories
-            </span>
-            <button
-              onClick={loadMenuData}
-              title="Refresh menu catalog"
-              className="p-1 text-slate-400 hover:text-[#2563EB] rounded-lg transition-colors cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingMenu ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-
-          <div className="p-2 space-y-1">
-            {/* "All Items" tab */}
-            <button
-              onClick={() => setSelectedCategoryId("ALL")}
-              className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
-                selectedCategoryId === "ALL"
-                  ? "bg-[#EFF6FF] text-[#2563EB] font-bold shadow-xs border border-blue-200"
-                  : "text-[#64748B] hover:text-[#172033] hover:bg-[#F8FAFC]"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <UtensilsCrossed className="w-3.5 h-3.5" />
-                <span>All Items</span>
-              </div>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                {menuItems.length}
-              </span>
-            </button>
-
-            {/* Category tabs loaded from PostgreSQL */}
-            {categories.map((cat) => {
-              const isSelected = selectedCategoryId === cat.id;
-
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedCategoryId(cat.id)}
-                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
-                    isSelected
-                      ? "bg-[#EFF6FF] text-[#2563EB] font-bold shadow-xs border border-blue-200"
-                      : "text-[#64748B] hover:text-[#172033] hover:bg-[#F8FAFC]"
-                  }`}
-                >
-                  <span className="truncate text-left">{cat.name}</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0 ml-1">
-                    {cat.availableItemCount}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </aside>
-
-        {/* ========================================================= */}
-        {/* CENTER COLUMN: Food Items Catalog Grid (Flexible width)   */}
-        {/* ========================================================= */}
-        <section className="flex-1 flex flex-col min-w-0 bg-[#F5F7FB] overflow-hidden">
-          {/* Top Search & Filter Bar */}
-          <div className="p-3.5 px-4 sm:px-6 bg-white border-b border-[#E2E8F0] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xs">
+        <section className="flex-1 flex flex-col min-w-0 bg-[#F5F7FB] overflow-hidden border-r border-[#E2E8F0] min-h-0">
+          {/* Top Search & Action Bar */}
+          <div className="p-3 px-4 sm:px-6 bg-white border-b border-[#E2E8F0] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xs shrink-0">
             <div className="relative flex-1 max-w-md">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search rolls, burgers, loaded fries, grill..."
-                className="w-full pl-9 pr-4 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] placeholder-slate-400 focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all"
+                placeholder="Search rolls, burgers, loaded fries, grill, drinks..."
+                className="w-full pl-9 pr-4 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs text-[#172033] placeholder-slate-400 focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 transition-all font-medium"
               />
               {searchQuery && (
                 <button
@@ -598,6 +661,23 @@ export const POSTerminalPage: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <button
+                onClick={() => setPosSortBy((prev) => (prev === "CODE" ? "NAME" : "CODE"))}
+                title={posSortBy === "CODE" ? "Currently sorted by Code / ID (#01-#99). Click for Alphabetical (A-Z)" : "Currently sorted Alphabetically (A-Z). Click for Code / ID (#01-#99)"}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#F8FAFC] hover:bg-slate-100 text-[#64748B] hover:text-[#172033] border border-[#E2E8F0] rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5 text-blue-600" />
+                <span>{posSortBy === "CODE" ? "Sort: Code" : "Sort: A-Z"}</span>
+              </button>
+
+              <button
+                onClick={loadMenuData}
+                title="Refresh menu catalog"
+                className="p-2 text-slate-500 hover:text-[#2563EB] bg-[#F8FAFC] hover:bg-slate-100 border border-[#E2E8F0] rounded-xl transition-colors cursor-pointer shadow-xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingMenu ? "animate-spin" : ""}`} />
+              </button>
+
+              <button
                 onClick={() => setIsHeldModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-xs"
               >
@@ -607,8 +687,59 @@ export const POSTerminalPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Horizontal Category Carousel Bar */}
+          <div className="bg-white border-b border-[#E2E8F0] px-4 sm:px-6 py-2.5 flex items-center gap-2 overflow-x-auto shadow-xs shrink-0 select-none">
+            {/* All Dishes Tab */}
+            <button
+              onClick={() => setSelectedCategoryId("ALL")}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer ${
+                selectedCategoryId === "ALL"
+                  ? "bg-[#2563EB] text-white shadow-md ring-2 ring-blue-500/20 scale-[1.02]"
+                  : "bg-[#F8FAFC] text-[#64748B] hover:text-[#172033] hover:bg-slate-100 border border-[#E2E8F0]"
+              }`}
+            >
+              <span>🍽️</span>
+              <span>All Dishes</span>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                  selectedCategoryId === "ALL" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+                }`}
+              >
+                {menuItems.length}
+              </span>
+            </button>
+
+            {/* Dynamic Categories */}
+            {categories.map((cat) => {
+              const isSelected = selectedCategoryId === cat.id;
+              const visual = getCategoryVisual(cat.name);
+
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategoryId(cat.id)}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer ${
+                    isSelected
+                      ? "bg-[#2563EB] text-white shadow-md ring-2 ring-blue-500/20 scale-[1.02]"
+                      : "bg-white text-[#475569] hover:text-[#0F172A] hover:bg-slate-50 border border-[#E2E8F0]"
+                  }`}
+                >
+                  <span>{visual.emoji}</span>
+                  <span>{cat.name}</span>
+                  <span
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                      isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {cat.availableItemCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Product Cards Grid Area */}
-          <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+          <div className="flex-1 min-h-0 p-4 sm:p-5 overflow-y-auto">
             {menuError && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between text-xs text-red-700">
                 <div className="flex items-center gap-2">
@@ -627,7 +758,7 @@ export const POSTerminalPage: React.FC = () => {
             {isLoadingMenu ? (
               <div className="flex flex-col items-center justify-center py-20 text-[#64748B] gap-3">
                 <RefreshCw className="w-8 h-8 animate-spin text-[#2563EB]" />
-                <p className="text-xs font-semibold">Loading menu catalog from PostgreSQL...</p>
+                <p className="text-xs font-semibold">Loading menu catalog...</p>
               </div>
             ) : filteredMenuItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center text-[#64748B] space-y-2">
@@ -640,58 +771,138 @@ export const POSTerminalPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
                 {filteredMenuItems.map((item) => {
                   const hasModifiers = item.modifierGroups && item.modifierGroups.length > 0;
+                  const nonVeg = isNonVegDish(item);
+                  const cartQty = getCartQuantityForItem(item.id);
+                  const hasImage = Boolean(item.imagePath && !failedImages[item.id]);
 
                   return (
                     <div
                       key={item.id}
                       onClick={() => handleSelectItem(item)}
-                      className="bg-white border border-[#E2E8F0] hover:border-[#2563EB] rounded-2xl p-3.5 shadow-card hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer relative select-none"
+                      className="bg-white border border-[#E2E8F0] hover:border-[#2563EB] rounded-2xl p-3 shadow-card transition-all flex flex-col justify-between group cursor-pointer relative select-none"
                     >
                       <div>
-                        {/* Image / Placeholder */}
-                        <div className="w-full h-28 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center relative mb-3 group-hover:scale-[1.02] transition-transform">
-                          {item.imagePath && !failedImages[item.id] ? (
+                        {hasImage ? (
+                          /* Real Uploaded Photo */
+                          <div className="w-full h-32 sm:h-36 rounded-xl overflow-hidden relative mb-2.5 shadow-xs bg-slate-100">
                             <img
-                              src={item.imagePath}
+                              src={item.imagePath!}
                               alt={item.name}
                               className="w-full h-full object-cover"
                               onError={() => setFailedImages((prev) => ({ ...prev, [item.id]: true }))}
                             />
-                          ) : (
-                            <UtensilsCrossed className="w-8 h-8 text-slate-300" />
-                          )}
 
-                          {hasModifiers && (
-                            <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-white/90 backdrop-blur-xs text-[10px] font-bold text-[#2563EB] shadow-xs flex items-center gap-0.5">
-                              <Sliders className="w-2.5 h-2.5" />
-                              <span>Custom</span>
-                            </span>
-                          )}
-                        </div>
+                            {/* FSSAI Veg / Non-Veg Indicator Badge */}
+                            <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-xs px-1.5 py-1 rounded-md shadow-xs flex items-center gap-1 border border-black/5 z-10">
+                              <div
+                                className={`w-3 h-3 rounded-xs border-2 flex items-center justify-center ${
+                                  nonVeg ? "border-red-600" : "border-emerald-600"
+                                }`}
+                              >
+                                <div
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    nonVeg ? "bg-red-600" : "bg-emerald-600"
+                                  }`}
+                                />
+                              </div>
+                              <span
+                                className={`text-[9px] font-black uppercase tracking-wider ${
+                                  nonVeg ? "text-red-700" : "text-emerald-700"
+                                }`}
+                              >
+                                {nonVeg ? "Non-Veg" : "Veg"}
+                              </span>
+                            </div>
 
-                        {/* Title & Category */}
+                            {/* Customisable indicator */}
+                            {hasModifiers && (
+                              <span className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-white/95 backdrop-blur-xs text-[10px] font-black text-[#2563EB] shadow-xs flex items-center gap-1 border border-blue-200 z-10">
+                                <Sliders className="w-2.5 h-2.5" />
+                                <span>Customize</span>
+                              </span>
+                            )}
+
+                            {/* In-cart count badge */}
+                            {cartQty > 0 && (
+                              <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-lg bg-[#2563EB] text-white text-[11px] font-black shadow-md flex items-center gap-1 z-10">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>{cartQty} in cart</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          /* Clean Dish Header without dummy photos/emojis */
+                          <div className="flex items-center justify-between gap-1 mb-2.5">
+                            {/* FSSAI Veg / Non-Veg Indicator Badge */}
+                            <div className="bg-[#F8FAFC] px-2 py-1 rounded-md flex items-center gap-1.5 border border-slate-200">
+                              <div
+                                className={`w-3 h-3 rounded-xs border-2 flex items-center justify-center ${
+                                  nonVeg ? "border-red-600" : "border-emerald-600"
+                                }`}
+                              >
+                                <div
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    nonVeg ? "bg-red-600" : "bg-emerald-600"
+                                  }`}
+                                />
+                              </div>
+                              <span
+                                className={`text-[9px] font-black uppercase tracking-wider ${
+                                  nonVeg ? "text-red-700" : "text-emerald-700"
+                                }`}
+                              >
+                                {nonVeg ? "Non-Veg" : "Veg"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              {hasModifiers && (
+                                <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[10px] font-black text-[#2563EB] border border-blue-200 flex items-center gap-1">
+                                  <Sliders className="w-2.5 h-2.5" />
+                                  <span>Customize</span>
+                                </span>
+                              )}
+
+                              {cartQty > 0 && (
+                                <span className="px-2 py-0.5 rounded-md bg-[#2563EB] text-white text-[10px] font-black flex items-center gap-1 shadow-xs">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  <span>{cartQty} in cart</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Dish Title & Category Tag */}
                         <div className="space-y-1">
-                          <span className="text-[10px] font-semibold text-[#64748B] uppercase tracking-wider block">
+                          <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider block">
                             {item.category?.name}
                           </span>
-                          <h3 className="text-xs sm:text-sm font-bold text-[#172033] line-clamp-2 group-hover:text-[#2563EB] transition-colors">
+                          <h3 className="text-xs sm:text-sm font-extrabold text-[#172033] leading-snug group-hover:text-[#2563EB] transition-colors line-clamp-2">
                             {item.name}
                           </h3>
                         </div>
                       </div>
 
-                      {/* Price & Add Indicator */}
+                      {/* Price & Add Button */}
                       <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
-                        <span className="font-mono font-bold text-sm text-[#172033]">
-                          {formatPaise(item.basePrice)}
-                        </span>
-
-                        <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#2563EB] border border-blue-200 flex items-center justify-center group-hover:bg-[#2563EB] group-hover:text-white transition-colors shadow-xs">
-                          <Plus className="w-4 h-4" />
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Price</span>
+                          <span className="font-mono font-black text-sm sm:text-base text-[#172033]">
+                            {formatPaise(item.basePrice)}
+                          </span>
                         </div>
+
+                        <button
+                          type="button"
+                          className="px-2.5 py-1.5 rounded-xl bg-blue-50 text-[#2563EB] hover:bg-[#2563EB] hover:text-white border border-blue-200 font-bold text-xs flex items-center gap-1 transition-all shadow-xs group-hover:bg-[#2563EB] group-hover:text-white cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -702,11 +913,11 @@ export const POSTerminalPage: React.FC = () => {
         </section>
 
         {/* ========================================================= */}
-        {/* RIGHT COLUMN: Current Order Cart & Checkout Summary (~360px)*/}
+        {/* RIGHT COLUMN: Current Order Cart & Checkout Summary (~380px)*/}
         {/* ========================================================= */}
-        <aside className="w-full lg:w-96 bg-white border-l border-[#E2E8F0] flex flex-col shrink-0 shadow-sm overflow-hidden">
-          {/* Order Type & Meta Header */}
-          <div className="p-4 border-b border-[#E2E8F0] space-y-3 bg-[#F8FAFC]">
+        <aside className="w-full lg:w-[380px] xl:w-[410px] h-full bg-white border-l border-[#E2E8F0] flex flex-col shrink-0 shadow-sm overflow-hidden min-h-0">
+          {/* Order Type & Meta Header - PINNED TO TOP */}
+          <div className="p-4 border-b border-[#E2E8F0] space-y-3 bg-[#F8FAFC] shrink-0 z-10">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="w-4 h-4 text-[#2563EB]" />
@@ -873,19 +1084,30 @@ export const POSTerminalPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Cart Item List */}
-          <div className="flex-1 p-3 space-y-2 overflow-y-auto">
+          {/* Cart Item List - ONLY THIS SECTION SCROLLS */}
+          <div className="flex-1 min-h-0 p-3 space-y-2 overflow-y-auto overscroll-contain">
             {cart.length === 0 ? (
-              <div className="py-20 text-center text-slate-400 space-y-2">
-                <ShoppingCart className="w-10 h-10 text-slate-300 mx-auto" />
-                <p className="text-xs font-semibold text-[#172033]">Order cart is empty</p>
-                <p className="text-[11px] max-w-xs mx-auto">
-                  Select rolls, handcrafted burgers, or drinks from the catalog to begin billing.
-                </p>
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-4 my-auto select-none">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-50 via-indigo-50 to-orange-50 border border-blue-100 flex items-center justify-center shadow-inner">
+                  <span className="text-4xl">🌯</span>
+                </div>
+                <div className="space-y-1.5 max-w-xs">
+                  <h3 className="text-base font-extrabold text-[#172033]">
+                    Welcome to ROLLZ!
+                  </h3>
+                  <p className="text-xs text-[#64748B] leading-relaxed">
+                    Select any freshly prepared roll, handcrafted burger, or chilled beverage from the catalog to build your order.
+                  </p>
+                </div>
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Fresh & Hot • Made to Order</span>
+                </div>
               </div>
             ) : (
               cart.map((line) => {
                 const hasModifiers = line.selectedModifiers.length > 0;
+                const nonVeg = isNonVegDish(line.item);
 
                 return (
                   <div
@@ -893,13 +1115,28 @@ export const POSTerminalPage: React.FC = () => {
                     className="p-3 bg-white border border-[#E2E8F0] rounded-2xl space-y-2 shadow-xs hover:border-slate-300 transition-all"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-0.5 min-w-0">
-                        <h4 className="text-xs font-bold text-[#172033] truncate">
-                          {line.item.name}
-                        </h4>
-                        <span className="text-[11px] font-mono text-[#64748B]">
-                          Base: {formatPaise(line.item.basePrice)}
-                        </span>
+                      <div className="space-y-0.5 min-w-0 flex items-start gap-2">
+                        {/* Veg / Non-Veg dot */}
+                        <div
+                          className={`w-3.5 h-3.5 rounded-xs border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                            nonVeg ? "border-red-600" : "border-emerald-600"
+                          }`}
+                        >
+                          <div
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              nonVeg ? "bg-red-600" : "bg-emerald-600"
+                            }`}
+                          />
+                        </div>
+
+                        <div className="min-w-0">
+                          <h4 className="text-xs sm:text-sm font-bold text-[#172033] truncate">
+                            {line.item.name}
+                          </h4>
+                          <span className="text-[11px] font-mono text-[#64748B]">
+                            Base: {formatPaise(line.item.basePrice)}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
@@ -986,8 +1223,8 @@ export const POSTerminalPage: React.FC = () => {
             )}
           </div>
 
-          {/* Checkout & Bill Summary Calculations */}
-          <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] space-y-3">
+          {/* Checkout & Bill Summary Calculations - PINNED TO BOTTOM */}
+          <div className="p-4 border-t border-[#E2E8F0] bg-[#F8FAFC] space-y-3 shrink-0 z-10">
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between text-[#64748B]">
                 <span>Subtotal:</span>
@@ -1012,9 +1249,9 @@ export const POSTerminalPage: React.FC = () => {
                 </span>
               </div>
 
-              <div className="flex justify-between text-base font-black text-[#172033] pt-1.5 border-t border-slate-200">
-                <span>Payable Total:</span>
-                <span className="font-mono text-[#2563EB]">
+              <div className="flex justify-between items-baseline text-base pt-2 border-t-2 border-slate-200">
+                <span className="font-extrabold text-[#172033]">Payable Total:</span>
+                <span className="font-mono text-2xl font-black text-[#2563EB]">
                   {formatPaise(serverCalculation?.grandTotal || 0)}
                 </span>
               </div>
