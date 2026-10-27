@@ -34,6 +34,15 @@ cd ..\client
 call npm install
 cd ..
 
+:: Verify or install Cloudflare tunnel helper for zero-configuration UPI observer
+where cloudflared >nul 2>nul
+if %errorlevel% neq 0 (
+    if not exist "C:\Program Files (x86)\cloudflared\cloudflared.exe" (
+        echo [INFO] Installing Cloudflare tunnel component for UPI Gateway...
+        winget install --id Cloudflare.cloudflared -e --silent --accept-source-agreements --accept-package-agreements >nul 2>&1
+    )
+)
+
 echo.
 echo [3/4] Updating Database Schema (Preserving all orders, customers, and menu)...
 cd server
@@ -60,6 +69,7 @@ echo - Menu Photo 15MB Uploads & Client-side Optimizer
 echo - Fixed Modifier Customizer (Extra Cheese & Add-ons selection)
 echo - Menu Sorting by Code (#01-#99) and ABCD Alphabetical Order
 echo - Locked Cart Layout & Clean Customer Menu Screen
+echo - Zero-Fee Automated UPI Payment Observer & Soundbox (Auto-Verification via Bank SMS)
 echo.
 echo You can now launch the software using ROLLZ-POS-Launcher.bat
 echo or your desktop shortcut!

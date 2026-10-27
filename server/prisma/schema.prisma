@@ -90,6 +90,8 @@ model Branch {
   kitchenPrinterAddress      String?   // e.g. "192.168.1.201:9100"
   kitchenPrinterPaperWidth   Int       @default(80)    // 80 or 58 mm
   kitchenPrinterEnabled      Boolean   @default(true)
+  upiAutoVerifyEnabled       Boolean   @default(true)
+  upiWebhookSecret           String?   @default("rollz_upi_secret_default")
   isActive         Boolean           @default(true)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -98,6 +100,7 @@ model Branch {
   menuItems        MenuItem[]
   modifierGroups   ModifierGroup[]
   orders           Order[]
+  upiBankAlerts    UpiBankAlert[]
   payments         Payment[]
   invoices         Invoice[]
   printJobs        PrintJob[]
@@ -278,6 +281,7 @@ model Order {
   invoice        Invoice?
   printJobs      PrintJob[]
   stockMovements StockMovement[]
+  upiBankAlerts  UpiBankAlert[]
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -604,5 +608,25 @@ model Customer {
   @@index([branchId, phone])
   @@index([branchId, name])
   @@map("customers")
+}
+
+model UpiBankAlert {
+  id             String    @id @default(uuid())
+  branchId       String
+  branch         Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  sender         String?   // Bank sender tag e.g. "HDFCBK", "SBIINB", "VK-ICICIB"
+  rawMessage     String    // Full raw SMS or notification body
+  amountPaise    Int       // Parsed amount in paise (e.g. 14000 = Rs 140.00)
+  utrNumber      String?   // 12-digit UTR transaction reference
+  payerInfo      String?   // Payer VPA or name if present
+  matched        Boolean   @default(false)
+  matchedOrderId String?
+  matchedOrder   Order?    @relation(fields: [matchedOrderId], references: [id], onDelete: SetNull)
+  createdAt      DateTime  @default(now())
+
+  @@index([branchId, amountPaise, matched])
+  @@index([branchId, utrNumber])
+  @@index([branchId, createdAt])
+  @@map("upi_bank_alerts")
 }
 

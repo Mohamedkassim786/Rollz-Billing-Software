@@ -18,6 +18,7 @@ import { settingsRouter } from "./routes/settings.routes";
 import { whatsappRouter } from "./routes/whatsapp.routes";
 import { customerRouter } from "./routes/customer.routes";
 import { userRouter } from "./routes/user.routes";
+import { upiObserverRouter } from "./routes/upiObserver.routes";
 import { env } from "./config/env";
 import { UPLOAD_ROOT, BRANDING_UPLOAD_ROOT } from "./utils/fileUpload";
 
@@ -64,9 +65,10 @@ app.use(
 
 app.use(express.json());
 
-// Serve local uploaded images statically
+// Serve local uploaded images and APK statically
 app.use("/uploads/menu-items", express.static(UPLOAD_ROOT));
 app.use("/uploads/branding", express.static(BRANDING_UPLOAD_ROOT));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // API Routes
 app.use("/api/health", healthRouter);
@@ -86,6 +88,9 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/whatsapp", whatsappRouter);
 app.use("/api/customers", customerRouter);
 app.use("/api/users", userRouter);
+app.use("/api/upi-observer", upiObserverRouter);
+app.use("/api/v1", upiObserverRouter);
+app.use("/v1", upiObserverRouter);
 
 // Root informational endpoint
 app.get("/", (_req: Request, res: Response) => {

@@ -39,3 +39,8 @@ server/uploads/branding/*
 # WhatsApp session data
 server/whatsapp_auth/
 whatsapp_auth/
+
+# Cloned reference repositories
+YouPI-PG/
+youpi-pg/
+youpi-pg-reference/

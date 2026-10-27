@@ -20,7 +20,29 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { formatPaise } from "../../utils/currency";
 import { paymentsApi, PaymentTender, PaymentResultResponse } from "../../api/payments.api";
+import { upiObserverApi, UpiBankAlertRecord } from "../../api/upiObserver.api";
 import { useAuth } from "../../context/AuthContext";
+
+function playPaymentSuccessSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const audioCtx = new AudioCtx();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+    osc.frequency.setValueAtTime(880.00, audioCtx.currentTime + 0.12); // A5
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.45);
+  } catch (e) {
+    // Ignore audio permission errors
+  }
+}
 
 interface POSPaymentModalProps {
   isOpen: boolean;
@@ -75,6 +97,8 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
   const [splitActiveQrTender, setSplitActiveQrTender] = useState<{ id: string; amountRupees: string } | null>(null);
   const [upiRef, setUpiRef] = useState("");
   const [isUpiVerified, setIsUpiVerified] = useState(false);
+  const [detectedUpiAlert, setDetectedUpiAlert] = useState<UpiBankAlertRecord | null>(null);
+  const [isSimulatingPayment, setIsSimulatingPayment] = useState(false);
 
   // Card state
   const [cardAuthRef, setCardAuthRef] = useState("");
@@ -105,6 +129,8 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
       setIsEnlargedQr(false);
       setIsEditingUpi(false);
       setSplitActiveQrTender(null);
+      setDetectedUpiAlert(null);
+      setIsSimulatingPayment(false);
 
       const activeUpi = localStorage.getItem("rollz_pos_upi_id") || branch?.upiId || "";
       const activeName = localStorage.getItem("rollz_pos_upi_payee_name") || branch?.upiPayeeName || branch?.name || "ROLLZ Fast Food";
@@ -114,6 +140,64 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
       setTempUpiNameInput(activeName);
     }
   }, [isOpen, grandTotalPaise, branch]);
+
+  // Background polling for bank SMS / UPI payment verification
+  useEffect(() => {
+    if (!isOpen || activeTab !== "UPI" || isSubmitting || detectedUpiAlert) {
+      return;
+    }
+
+    let isMounted = true;
+    const pollTimer = setInterval(async () => {
+      try {
+        const res = await upiObserverApi.checkOrderStatus(orderId);
+        if (!isMounted) return;
+
+        if (res.isPaid && res.alert) {
+          setDetectedUpiAlert(res.alert);
+          setIsUpiVerified(true);
+          if (res.alert.utrNumber) {
+            setUpiRef(res.alert.utrNumber);
+          }
+          playPaymentSuccessSound();
+        }
+      } catch (err) {
+        // Silently retry during background poll
+      }
+    }, 1500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollTimer);
+    };
+  }, [isOpen, activeTab, orderId, isSubmitting, detectedUpiAlert]);
+
+  // Test simulation handler for cashiers / training
+  const handleSimulateTestPayment = async () => {
+    setIsSimulatingPayment(true);
+    setErrorMessage(null);
+    try {
+      const res = await upiObserverApi.simulatePayment({
+        amountRupees: grandTotalPaise / 100,
+        orderId,
+        bankName: "HDFC Bank",
+        payerVpa: "customer@upi",
+      });
+
+      if (res.alert) {
+        setDetectedUpiAlert(res.alert);
+        setIsUpiVerified(true);
+        if (res.alert.utrNumber) {
+          setUpiRef(res.alert.utrNumber);
+        }
+        playPaymentSuccessSound();
+      }
+    } catch (err: any) {
+      setErrorMessage(err.response?.data?.error || "Simulation failed");
+    } finally {
+      setIsSimulatingPayment(false);
+    }
+  };
 
   const handleSaveUpiId = () => {
     const cleanId = tempUpiInput.trim();
@@ -134,16 +218,18 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
 
   const upiUri = useMemo(() => {
     if (!modalUpiId.trim()) return "";
-    const cleanName = encodeURIComponent(modalUpiName.trim() || "ROLLZ");
-    const cleanNote = encodeURIComponent(`Order #${orderNumber}`);
+    const cleanName = encodeURIComponent(modalUpiName.trim().replace(/[^a-zA-Z0-9\s]/g, "") || "ROLLZ");
+    const cleanOrderNum = orderNumber.replace(/[^a-zA-Z0-9]/g, "");
+    const cleanNote = encodeURIComponent(`Order ${cleanOrderNum}`);
     return `upi://pay?pa=${modalUpiId.trim()}&pn=${cleanName}&am=${upiAmountRupees}&cu=INR&tn=${cleanNote}`;
   }, [modalUpiId, modalUpiName, upiAmountRupees, orderNumber]);
 
   const splitUpiUri = useMemo(() => {
     if (!splitActiveQrTender || !modalUpiId.trim()) return "";
     const amt = (parseFloat(splitActiveQrTender.amountRupees) || 0).toFixed(2);
-    const cleanName = encodeURIComponent(modalUpiName.trim() || "ROLLZ");
-    const cleanNote = encodeURIComponent(`Order #${orderNumber} Split`);
+    const cleanName = encodeURIComponent(modalUpiName.trim().replace(/[^a-zA-Z0-9\s]/g, "") || "ROLLZ");
+    const cleanOrderNum = orderNumber.replace(/[^a-zA-Z0-9]/g, "");
+    const cleanNote = encodeURIComponent(`Order ${cleanOrderNum} Split`);
     return `upi://pay?pa=${modalUpiId.trim()}&pn=${cleanName}&am=${amt}&cu=INR&tn=${cleanNote}`;
   }, [splitActiveQrTender, modalUpiId, modalUpiName, orderNumber]);
 
@@ -219,7 +305,7 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
         amount: grandTotalPaise,
         externalReference: upiRef.trim() || undefined,
         notes: notes || undefined,
-        confirmationType: "MANUAL_CASHIER",
+        confirmationType: detectedUpiAlert ? "AUTO_UPI_OBSERVER" : "MANUAL_CASHIER",
       });
     } else if (activeTab === "CARD") {
       if (!isCardVerified) {
@@ -641,22 +727,79 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                 </div>
               )}
 
+              {/* Automated UPI Observer Status Card */}
+              {detectedUpiAlert ? (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between animate-in fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Check className="w-5 h-5 stroke-[2.5]" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-emerald-900">
+                          Bank Payment Verified: ₹{(detectedUpiAlert.amountPaise / 100).toFixed(2)}
+                        </span>
+                        <span className="text-[10px] font-bold bg-emerald-200/80 text-emerald-800 px-1.5 py-0.2 rounded">
+                          AUTO
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700 mt-0.5">
+                        {detectedUpiAlert.bankName || "Bank UPI"} • UTR:{" "}
+                        <strong className="font-mono">{detectedUpiAlert.utrNumber || "N/A"}</strong>
+                        {detectedUpiAlert.payerInfo ? ` • ${detectedUpiAlert.payerInfo}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-xs">
+                    Ready to Finalize
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs">
+                  <div className="flex items-center gap-2 text-blue-900 font-medium">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-600"></span>
+                    </span>
+                    <span>Listening for bank SMS / Soundbox payment...</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSimulateTestPayment}
+                    disabled={isSimulatingPayment}
+                    className="text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-white hover:bg-blue-100/80 border border-blue-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                    title="Simulate receiving UPI payment notification"
+                  >
+                    {isSimulatingPayment ? "Simulating..." : "⚡ Test Verify"}
+                  </button>
+                </div>
+              )}
+
               {/* UTR Input */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  UPI Transaction / UTR Reference (Optional)
+                  UPI Transaction / UTR Reference {detectedUpiAlert ? "(Auto-Captured)" : "(Optional)"}
                 </label>
                 <input
                   type="text"
                   value={upiRef}
                   onChange={(e) => setUpiRef(e.target.value)}
                   placeholder="e.g. 12-digit UTR or Txn ID"
-                  className="w-full px-3.5 py-2.5 bg-white border border-[#E2E8F0] rounded-xl text-xs text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
+                  className={`w-full px-3.5 py-2.5 border rounded-xl text-xs font-mono transition-colors ${
+                    detectedUpiAlert
+                      ? "bg-emerald-50/60 border-emerald-300 text-emerald-900 font-bold"
+                      : "bg-white border-[#E2E8F0] text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
+                  }`}
                 />
               </div>
 
               {/* Cashier confirmation checkbox */}
-              <label className="flex items-start gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100/60 transition-colors">
+              <label className={`flex items-start gap-2.5 p-3 rounded-xl cursor-pointer transition-colors border ${
+                detectedUpiAlert
+                  ? "bg-emerald-50/60 border-emerald-200"
+                  : "bg-slate-50 border-slate-200 hover:bg-slate-100/60"
+              }`}>
                 <input
                   type="checkbox"
                   checked={isUpiVerified}
@@ -664,8 +807,16 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                   className="mt-0.5 rounded text-[#2563EB] focus:ring-[#2563EB]"
                 />
                 <span className="text-xs text-slate-700 font-medium">
-                  I confirm that customer has completed payment of{" "}
-                  <strong>{formatPaise(grandTotalPaise)}</strong> on restaurant UPI soundbox / account.
+                  {detectedUpiAlert ? (
+                    <strong className="text-emerald-800">
+                      ✓ Bank credit confirmed via observer (Amount: {formatPaise(grandTotalPaise)})
+                    </strong>
+                  ) : (
+                    <>
+                      I confirm that customer has completed payment of{" "}
+                      <strong>{formatPaise(grandTotalPaise)}</strong> on restaurant UPI soundbox / account.
+                    </>
+                  )}
                 </span>
               </label>
             </div>
@@ -840,7 +991,11 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
             type="button"
             onClick={handleConfirmPayment}
             disabled={isSubmitting || (activeTab === "CASH" && isCashInsufficient)}
-            className="flex-1 sm:flex-none sm:min-w-[200px] flex items-center justify-center gap-2 px-6 py-2.5 bg-[#2563EB] hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 cursor-pointer"
+            className={`flex-1 sm:flex-none sm:min-w-[200px] flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "UPI" && detectedUpiAlert
+                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/25 ring-2 ring-emerald-400"
+                : "bg-[#2563EB] hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white shadow-md shadow-blue-500/20"
+            }`}
           >
             {isSubmitting ? (
               <>
@@ -850,7 +1005,11 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
             ) : (
               <>
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Confirm & Finalize ({formatPaise(grandTotalPaise)})</span>
+                <span>
+                  {activeTab === "UPI" && detectedUpiAlert
+                    ? `Payment Verified ✓ Finalize (${formatPaise(grandTotalPaise)})`
+                    : `Confirm & Finalize (${formatPaise(grandTotalPaise)})`}
+                </span>
               </>
             )}
           </button>

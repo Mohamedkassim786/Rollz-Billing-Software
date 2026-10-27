@@ -4,6 +4,7 @@ import { env } from "./config/env";
 import { prisma, checkDatabaseConnection } from "./config/prisma";
 import { ensureDefaultBranchAndCategories } from "./utils/seedInitialData";
 import { printerService } from "./services/printer/printerService";
+import { upiTunnelService } from "./services/upiTunnelService";
 
 function getLocalIpAddresses(): string[] {
   const interfaces = os.networkInterfaces();
@@ -65,10 +66,21 @@ async function startServer() {
     }
     console.log(`🩺 Health check:       http://localhost:${env.PORT}/api/health`);
     console.log("==================================================");
+
+    // Start background secure HTTPS tunnel for Android Observer App (YouPI APK)
+    upiTunnelService.startTunnel(env.PORT).then((tunnelUrl) => {
+      if (tunnelUrl) {
+        console.log(`🔒 Android Gateway HTTPS Tunnel: ${tunnelUrl}`);
+        console.log("==================================================");
+      }
+    }).catch((err) => {
+      console.warn("⚠️ UPI tunnel startup warning:", err?.message || err);
+    });
   });
 
   const handleShutdown = async (signal: string) => {
     console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+    await upiTunnelService.closeTunnel().catch(() => {});
     server.close(async () => {
       await prisma.$disconnect();
       console.log("🔌 Database disconnected. Process exiting.");

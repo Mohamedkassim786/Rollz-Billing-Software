@@ -21,12 +21,14 @@ import {
   X,
   Image as ImageIcon,
   HardDrive,
+  ShieldCheck,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../context/AuthContext";
 import { settingsApi, BackupItem, HostInfo } from "../api/settings.api";
 import { usersApi, StaffUser } from "../api/users.api";
 import { authApi } from "../api/auth.api";
+import { upiObserverApi, UpiBankAlertRecord } from "../api/upiObserver.api";
 
 export const SettingsPage: React.FC = () => {
   const { user, branch, refreshAuthStatus } = useAuth();
@@ -56,6 +58,25 @@ export const SettingsPage: React.FC = () => {
   const [upiPayeeName, setUpiPayeeName] = useState("");
   const [testAmountRupees, setTestAmountRupees] = useState("100");
   const [hasCopiedUpi, setHasCopiedUpi] = useState(false);
+
+  // Automated UPI Observer & Soundbox
+  const [upiAutoVerifyEnabled, setUpiAutoVerifyEnabled] = useState(true);
+  const [upiWebhookSecret, setUpiWebhookSecret] = useState("rollz_upi_secret_default");
+  const [hasCopiedWebhookUrl, setHasCopiedWebhookUrl] = useState(false);
+  const [hasCopiedSecret, setHasCopiedSecret] = useState(false);
+  const [simBankAmount, setSimBankAmount] = useState("140");
+  const [simBankName, setSimBankName] = useState("HDFC Bank");
+  const [simPayerVpa, setSimPayerVpa] = useState("customer@okaxis");
+  const [isSimulatingSms, setIsSimulatingSms] = useState(false);
+  const [simResult, setSimResult] = useState<{ success: boolean; message: string; sms?: string } | null>(null);
+  const [recentAlerts, setRecentAlerts] = useState<UpiBankAlertRecord[]>([]);
+  const [isLoadingAlerts, setIsLoadingAlerts] = useState(false);
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
+  const [showPairingQr, setShowPairingQr] = useState(false);
+  const [pairingServerIp, setPairingServerIp] = useState<string>("192.168.1.9");
+  const [pairingServerUrl, setPairingServerUrl] = useState<string>("");
+  const [isSecureTunnel, setIsSecureTunnel] = useState<boolean>(false);
+  const [isRestartingTunnel, setIsRestartingTunnel] = useState<boolean>(false);
 
   // Customer Printer Configuration
   const [customerPrinterType, setCustomerPrinterType] = useState("MOCK");
@@ -143,12 +164,83 @@ export const SettingsPage: React.FC = () => {
       setKitchenPrinterPaperWidth(b.kitchenPrinterPaperWidth || 80);
       setKitchenPrinterEnabled(b.kitchenPrinterEnabled ?? true);
 
+      setUpiAutoVerifyEnabled(b.upiAutoVerifyEnabled ?? true);
+      setUpiWebhookSecret(b.upiWebhookSecret || "rollz_upi_secret_default");
+
       setHostInfo(data.hostInfo);
       setBackups(data.backups);
+      loadUpiAlerts();
+
+      fetch("/api/upi-observer/pairing-info")
+        .then((r) => r.json())
+        .then((info) => {
+          if (info.serverUrl) setPairingServerUrl(info.serverUrl);
+          if (info.localIp) setPairingServerIp(info.localIp);
+          if (info.isSecureTunnel !== undefined) setIsSecureTunnel(info.isSecureTunnel);
+        })
+        .catch(() => {});
     } catch (err: any) {
       showNotification("error", "Failed to load restaurant settings: " + (err.message || "Unknown error"));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Keep pairing info in sync when QR pairing card is visible
+  useEffect(() => {
+    if (!showPairingQr) return;
+    const updatePairing = () => {
+      fetch("/api/upi-observer/pairing-info")
+        .then((r) => r.json())
+        .then((info) => {
+          if (info.serverUrl) setPairingServerUrl(info.serverUrl);
+          if (info.localIp) setPairingServerIp(info.localIp);
+          if (info.isSecureTunnel !== undefined) setIsSecureTunnel(info.isSecureTunnel);
+        })
+        .catch(() => {});
+    };
+    updatePairing();
+    const interval = setInterval(updatePairing, 5000);
+    return () => clearInterval(interval);
+  }, [showPairingQr]);
+
+  const loadUpiAlerts = async () => {
+    setIsLoadingAlerts(true);
+    try {
+      const res = await upiObserverApi.getHistory();
+      setRecentAlerts(res.alerts || []);
+    } catch (err) {
+      console.warn("Failed to load UPI alerts:", err);
+    } finally {
+      setIsLoadingAlerts(false);
+    }
+  };
+
+  const handleSimulateSmsInSettings = async () => {
+    setIsSimulatingSms(true);
+    setSimResult(null);
+    try {
+      const amt = parseFloat(simBankAmount) || 140;
+      const res = await upiObserverApi.simulatePayment({
+        amountRupees: amt,
+        bankName: simBankName,
+        payerVpa: simPayerVpa,
+      });
+
+      setSimResult({
+        success: true,
+        message: `Parsed & Recorded ₹${amt.toFixed(2)} from ${simBankName}!`,
+        sms: res.simulatedSms,
+      });
+      loadUpiAlerts();
+      showNotification("success", `Simulated ₹${amt.toFixed(2)} payment notification received!`);
+    } catch (err: any) {
+      setSimResult({
+        success: false,
+        message: err.response?.data?.error || "Simulation failed",
+      });
+    } finally {
+      setIsSimulatingSms(false);
     }
   };
 
@@ -206,6 +298,8 @@ export const SettingsPage: React.FC = () => {
         kitchenPrinterAddress,
         kitchenPrinterPaperWidth,
         kitchenPrinterEnabled,
+        upiAutoVerifyEnabled,
+        upiWebhookSecret: upiWebhookSecret.trim() || "rollz_upi_secret_default",
       });
 
       if (trimmedUpiId) {
@@ -375,6 +469,26 @@ export const SettingsPage: React.FC = () => {
       showNotification("error", err.response?.data?.error?.message || "Failed to update profile.");
     } finally {
       setIsUpdatingProfile(false);
+    }
+  };
+
+  // Restart Secure UPI Tunnel
+  const handleRestartTunnel = async () => {
+    setIsRestartingTunnel(true);
+    try {
+      const res = await fetch("/api/upi-observer/tunnel/restart", { method: "POST" });
+      const data = await res.json();
+      if (data.tunnelUrl) {
+        setPairingServerUrl(data.tunnelUrl);
+        setIsSecureTunnel(true);
+        showNotification("success", `Secure HTTPS tunnel updated: ${data.tunnelUrl}`);
+      } else {
+        showNotification("error", "Could not restart tunnel. Using local IP.");
+      }
+    } catch {
+      showNotification("error", "Failed to restart tunnel");
+    } finally {
+      setIsRestartingTunnel(false);
     }
   };
 
@@ -914,6 +1028,465 @@ export const SettingsPage: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Section: Automated UPI Payment Observer & Soundbox (Zero-Fee) */}
+          <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-[#172033]">Automated UPI Observer & Soundbox</h2>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-md">
+                      0% Gateway Fees
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#64748B]">
+                    Automatically detects and confirms customer UPI payments via incoming bank credit SMS notifications
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href="/uploads/youpi-sms-gateway.apk"
+                  download="youpi-sms-gateway.apk"
+                  className="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Download the Android Observer APK directly to your phone"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>📥 Download APK</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPairingQr(!showPairingQr)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border ${
+                    showPairingQr
+                      ? "bg-purple-600 text-white border-purple-600"
+                      : "bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200"
+                  }`}
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>{showPairingQr ? "Hide Pairing QR" : "📷 1-Tap Pair Phone"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSetupGuide(!showSetupGuide)}
+                  className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  {showSetupGuide ? "Hide Guide" : "📖 Guide"}
+                </button>
+              </div>
+            </div>
+
+            {/* 1-Tap Phone Pairing QR & Manual Pairing Card */}
+            {showPairingQr && (() => {
+              const activeGatewayUrl = pairingServerUrl || (pairingServerIp ? `http://${pairingServerIp}:5000` : "http://192.168.1.9:5000");
+              return (
+              <div className="p-5 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-2xl space-y-5 animate-in fade-in">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-5">
+                  <div className="space-y-2 text-center md:text-left flex-1">
+                    <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start">
+                      <span className="text-[10px] uppercase font-black tracking-wider text-purple-700 bg-purple-100 px-2.5 py-0.5 rounded-full">
+                        Instant Pairing
+                      </span>
+                      {isSecureTunnel ? (
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          <span>HTTPS Tunnel Verified (Android CA Trusted)</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">
+                          Local LAN Mode
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-sm font-black text-purple-950">
+                      Pair Phone with Rollz POS (Camera QR or Manual)
+                    </h3>
+                    <p className="text-xs text-purple-800 leading-relaxed">
+                      1. Open <strong>YOUPI SMS Gateway</strong> on your Android phone.<br />
+                      2. Tap <strong>[📷 SCAN PAIRING QR]</strong> and point camera at the QR code.<br />
+                      3. The app connects over verified HTTPS and immediately activates!
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                      <span className="text-purple-900 font-semibold text-[11px]">PC Network IP:</span>
+                      <input
+                        type="text"
+                        value={pairingServerIp}
+                        onChange={(e) => setPairingServerIp(e.target.value)}
+                        className="px-2 py-1 text-xs bg-white border border-purple-300 rounded-lg font-mono text-purple-950 w-32 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                        placeholder="192.168.1.9"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRestartTunnel}
+                        disabled={isRestartingTunnel}
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-purple-700 bg-white hover:bg-purple-100 border border-purple-300 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
+                        title="Generate or refresh HTTPS tunnel connection"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isRestartingTunnel ? "animate-spin" : ""}`} />
+                        <span>{isRestartingTunnel ? "Connecting..." : "Refresh Tunnel"}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-2 p-3 bg-white rounded-2xl shadow-md border border-purple-200 shrink-0">
+                    <QRCodeSVG
+                      value={JSON.stringify({
+                        type: "YOUPI_SMS_GATEWAY_PAIR",
+                        version: "v1",
+                        serverUrl: activeGatewayUrl,
+                        gatewayUrl: activeGatewayUrl,
+                        apiBaseUrl: activeGatewayUrl,
+                        enrollmentToken: upiWebhookSecret || "rollz_upi_secret_default",
+                        token: upiWebhookSecret || "rollz_upi_secret_default",
+                        merchantId: branch?.id || "00000000-0000-0000-0000-000000000001",
+                      })}
+                      size={140}
+                      level="M"
+                    />
+                    <span className="text-[10px] font-bold text-purple-700">Scan via Android App</span>
+                  </div>
+                </div>
+
+                {/* Manual Credentials Box */}
+                <div className="bg-white/80 border border-purple-200 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                      <span>⌨️ Manual Pairing Credentials (in App under Optional):</span>
+                    </span>
+                    <span className="text-[10px] text-purple-700 bg-purple-100 px-2 py-0.5 rounded font-mono font-bold">
+                      {isSecureTunnel ? "HTTPS Port 443" : "HTTP Port 5000"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2">
+                      <div className="truncate">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Gateway URL</span>
+                        <code className="text-xs font-bold text-slate-800 font-mono truncate block" title={activeGatewayUrl}>
+                          {activeGatewayUrl}
+                        </code>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(activeGatewayUrl);
+                          showNotification("success", "Gateway URL copied!");
+                        }}
+                        className="px-2 py-1 text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded cursor-pointer shrink-0"
+                      >
+                        Copy
+                      </button>
+                    </div>
+
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2">
+                      <div className="truncate">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Enrollment Secret Token</span>
+                        <code className="text-xs font-bold text-slate-800 font-mono">
+                          {upiWebhookSecret || "rollz_upi_secret_default"}
+                        </code>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(upiWebhookSecret || "rollz_upi_secret_default");
+                          showNotification("success", "Secret Token copied!");
+                        }}
+                        className="px-2 py-1 text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded cursor-pointer shrink-0"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-purple-900 leading-snug">
+                    👉 In the phone app, enter the Gateway URL and Secret Token above, then tap <strong>[Manual Connect]</strong>!
+                  </p>
+                </div>
+              </div>
+              );
+            })()}
+
+            {/* How It Works Guide Accordion */}
+            {showSetupGuide && (
+              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl text-xs space-y-3 animate-in fade-in">
+                <h4 className="font-bold text-blue-900 flex items-center gap-1.5">
+                  <Network className="w-4 h-4 text-blue-600" />
+                  <span>3-Step Quick Phone Setup (YouPI Android APK or SMS Forwarder)</span>
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-slate-700">
+                  <div className="p-3 bg-white rounded-xl border border-blue-100">
+                    <span className="font-bold text-blue-700 block mb-1">1. Install on Phone</span>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Install the YouPI Android Observer APK or any SMS-to-URL forwarder (like Tasker or MacroDroid) on the phone that receives your shop's bank SMS.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-blue-100">
+                    <span className="font-bold text-blue-700 block mb-1">2. Paste Webhook URL</span>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Set the target POST URL to your Rollz POS Webhook URL below and add the secret token header.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-blue-100">
+                    <span className="font-bold text-blue-700 block mb-1">3. Zero-Fee Instant POS Check</span>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      When a customer scans your QR and pays, the phone forwards the credit alert, and the billing screen auto-completes with zero fees!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Webhook Configuration & Secret Token */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">
+                  Your Phone Webhook Target URL
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${pairingServerUrl || (pairingServerIp ? `http://${pairingServerIp}:5000` : "http://192.168.1.9:5000")}/api/upi-observer/webhook`}
+                    className="flex-1 h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-mono font-medium text-slate-700 bg-slate-50 select-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = `${pairingServerUrl || (pairingServerIp ? `http://${pairingServerIp}:5000` : "http://192.168.1.9:5000")}/api/upi-observer/webhook`;
+                      navigator.clipboard.writeText(url);
+                      setHasCopiedWebhookUrl(true);
+                      setTimeout(() => setHasCopiedWebhookUrl(false), 2000);
+                    }}
+                    className="h-10 px-3 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors shrink-0"
+                    title="Copy Webhook URL"
+                  >
+                    {hasCopiedWebhookUrl ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Target endpoint where MacroDroid forwards bank credit SMS notifications.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033]">
+                  Security Webhook Secret (Header: x-upi-secret)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={upiWebhookSecret}
+                    onChange={(e) => setUpiWebhookSecret(e.target.value)}
+                    placeholder="rollz_upi_secret_default"
+                    className="flex-1 h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-mono font-medium text-slate-700 bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(upiWebhookSecret);
+                      setHasCopiedSecret(true);
+                      setTimeout(() => setHasCopiedSecret(false), 2000);
+                    }}
+                    className="h-10 px-3 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors shrink-0"
+                    title="Copy Secret"
+                  >
+                    {hasCopiedSecret ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Secret token required in <code className="font-mono text-blue-600">x-upi-secret</code> header for security.
+                </p>
+              </div>
+            </div>
+
+            {/* Test Payment Simulator Box */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-[#172033] flex items-center gap-1.5">
+                    <span>⚡ Interactive Bank Notification Simulator</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Test the bank SMS parser and live billing screen match without spending real money
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">Test Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={simBankAmount}
+                    onChange={(e) => setSimBankAmount(e.target.value)}
+                    className="w-full h-9 px-3 rounded-lg border border-slate-300 text-xs font-bold bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">Bank Source</label>
+                  <select
+                    value={simBankName}
+                    onChange={(e) => setSimBankName(e.target.value)}
+                    className="w-full h-9 px-2 rounded-lg border border-slate-300 text-xs font-medium bg-white"
+                  >
+                    <option value="HDFC Bank">HDFC Bank</option>
+                    <option value="State Bank of India">State Bank of India (SBI)</option>
+                    <option value="ICICI Bank">ICICI Bank</option>
+                    <option value="Axis Bank">Axis Bank</option>
+                    <option value="Kotak Mahindra Bank">Kotak Mahindra Bank</option>
+                    <option value="Paytm Payments Bank">Paytm Payments Bank</option>
+                    <option value="PhonePe Merchant">PhonePe SmartSpeaker</option>
+                    <option value="Google Pay Business">Google Pay Business</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">Customer Payer VPA</label>
+                  <input
+                    type="text"
+                    value={simPayerVpa}
+                    onChange={(e) => setSimPayerVpa(e.target.value)}
+                    className="w-full h-9 px-3 rounded-lg border border-slate-300 text-xs font-mono bg-white"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSimulateSmsInSettings}
+                  disabled={isSimulatingSms}
+                  className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isSimulatingSms ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>⚡ Send Test SMS</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {simResult && (
+                <div className={`p-3 rounded-xl border text-xs space-y-1 animate-in fade-in ${
+                  simResult.success ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-700"
+                }`}>
+                  <div className="font-bold flex items-center gap-1.5">
+                    {simResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                    <span>{simResult.message}</span>
+                  </div>
+                  {simResult.sms && (
+                    <p className="font-mono text-[10px] bg-white/80 p-2 rounded border border-emerald-200 text-slate-700">
+                      {simResult.sms}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Recent Bank Alerts Log */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700">
+                  Recent Inbound Bank Credit Alerts ({recentAlerts.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={loadUpiAlerts}
+                  disabled={isLoadingAlerts}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isLoadingAlerts ? "animate-spin" : ""}`} />
+                  <span>Refresh Log</span>
+                </button>
+              </div>
+
+              {recentAlerts.length === 0 ? (
+                <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                  No bank credit alerts recorded yet. Click &quot;Send Test SMS&quot; above to verify parser!
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold text-[11px]">
+                      <tr>
+                        <th className="p-2.5 px-3">Time</th>
+                        <th className="p-2.5 px-3">Bank Source</th>
+                        <th className="p-2.5 px-3">Amount</th>
+                        <th className="p-2.5 px-3">12-Digit UTR</th>
+                        <th className="p-2.5 px-3">Payer</th>
+                        <th className="p-2.5 px-3">POS Match</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {recentAlerts.slice(0, 5).map((alert) => (
+                        <tr key={alert.id} className="hover:bg-slate-50/60 font-medium">
+                          <td className="p-2.5 px-3 text-slate-500 text-[11px]">
+                            {new Date(alert.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </td>
+                          <td className="p-2.5 px-3 font-semibold text-[#172033]">
+                            {alert.bankName || "Bank UPI"}
+                          </td>
+                          <td className="p-2.5 px-3 font-mono font-bold text-emerald-600">
+                            ₹{(alert.amountPaise / 100).toFixed(2)}
+                          </td>
+                          <td className="p-2.5 px-3 font-mono text-[11px] text-slate-700">
+                            {alert.utrNumber || "—"}
+                          </td>
+                          <td className="p-2.5 px-3 text-[11px] text-slate-500 truncate max-w-[120px]">
+                            {alert.payerInfo || "Customer"}
+                          </td>
+                          <td className="p-2.5 px-3">
+                            {alert.matched ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                Matched ✓
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">
+                                Received
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
 

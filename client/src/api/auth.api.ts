@@ -19,6 +19,8 @@ export interface Branch {
   tagline?: string | null;
   logoPath?: string | null;
   loginBgPath?: string | null;
+  upiAutoVerifyEnabled?: boolean;
+  upiWebhookSecret?: string | null;
 }
 
 export interface AuthResponse {

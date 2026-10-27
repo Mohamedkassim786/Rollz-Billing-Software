@@ -35,6 +35,8 @@ const updateSettingsSchema = z.object({
   kitchenPrinterAddress: z.string().trim().nullable().optional(),
   kitchenPrinterPaperWidth: z.coerce.number().int().optional(),
   kitchenPrinterEnabled: z.boolean().optional(),
+  upiAutoVerifyEnabled: z.boolean().optional(),
+  upiWebhookSecret: z.string().trim().nullable().optional(),
 });
 
 /**

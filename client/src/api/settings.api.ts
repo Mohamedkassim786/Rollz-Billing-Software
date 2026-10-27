@@ -25,6 +25,8 @@ export interface BranchSettings {
   kitchenPrinterAddress?: string;
   kitchenPrinterPaperWidth: number;
   kitchenPrinterEnabled: boolean;
+  upiAutoVerifyEnabled?: boolean;
+  upiWebhookSecret?: string | null;
 }
 
 export interface HostInfo {
@@ -73,6 +75,8 @@ export interface UpdateSettingsInput {
   kitchenPrinterAddress?: string;
   kitchenPrinterPaperWidth?: number;
   kitchenPrinterEnabled?: boolean;
+  upiAutoVerifyEnabled?: boolean;
+  upiWebhookSecret?: string | null;
 }
 
 export const settingsApi = {
