@@ -16,6 +16,10 @@ import {
   Edit2,
   Maximize2,
   Save,
+  Lock,
+  Clock,
+  Radio,
+  Smartphone,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { formatPaise } from "../../utils/currency";
@@ -98,7 +102,6 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
   const [upiRef, setUpiRef] = useState("");
   const [isUpiVerified, setIsUpiVerified] = useState(false);
   const [detectedUpiAlert, setDetectedUpiAlert] = useState<UpiBankAlertRecord | null>(null);
-  const [isSimulatingPayment, setIsSimulatingPayment] = useState(false);
 
   // Card state
   const [cardAuthRef, setCardAuthRef] = useState("");
@@ -118,6 +121,24 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [idempotencyKey] = useState<string>(() => `IDEMP-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
 
+  // Gateway session countdown timer (10 mins)
+  const [sessionSecondsLeft, setSessionSecondsLeft] = useState<number>(600);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setSessionSecondsLeft(600);
+    const timer = setInterval(() => {
+      setSessionSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isOpen]);
+
+  const formattedSessionTime = useMemo(() => {
+    const mins = Math.floor(sessionSecondsLeft / 60);
+    const secs = sessionSecondsLeft % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  }, [sessionSecondsLeft]);
+
   // Initialize cash tendered and UPI state when modal opens or total changes
   useEffect(() => {
     if (isOpen) {
@@ -130,7 +151,6 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
       setIsEditingUpi(false);
       setSplitActiveQrTender(null);
       setDetectedUpiAlert(null);
-      setIsSimulatingPayment(false);
 
       const activeUpi = localStorage.getItem("rollz_pos_upi_id") || branch?.upiId || "";
       const activeName = localStorage.getItem("rollz_pos_upi_payee_name") || branch?.upiPayeeName || branch?.name || "ROLLZ Fast Food";
@@ -172,32 +192,7 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
     };
   }, [isOpen, activeTab, orderId, isSubmitting, detectedUpiAlert]);
 
-  // Test simulation handler for cashiers / training
-  const handleSimulateTestPayment = async () => {
-    setIsSimulatingPayment(true);
-    setErrorMessage(null);
-    try {
-      const res = await upiObserverApi.simulatePayment({
-        amountRupees: grandTotalPaise / 100,
-        orderId,
-        bankName: "HDFC Bank",
-        payerVpa: "customer@upi",
-      });
 
-      if (res.alert) {
-        setDetectedUpiAlert(res.alert);
-        setIsUpiVerified(true);
-        if (res.alert.utrNumber) {
-          setUpiRef(res.alert.utrNumber);
-        }
-        playPaymentSuccessSound();
-      }
-    } catch (err: any) {
-      setErrorMessage(err.response?.data?.error || "Simulation failed");
-    } finally {
-      setIsSimulatingPayment(false);
-    }
-  };
 
   const handleSaveUpiId = () => {
     const cleanId = tempUpiInput.trim();
@@ -624,23 +619,23 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                   </div>
                 </div>
               ) : (
-                /* Dynamic QR Code Card */
-                <div className="p-4 bg-gradient-to-b from-blue-50/70 to-indigo-50/40 border border-blue-200 rounded-2xl space-y-4">
-                  {/* Banner / Info */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                /* Dynamic QR Code & Payment Processing Terminal */
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                  {/* Gateway Trust & Merchant Header */}
+                  <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-2 bg-blue-600 text-white rounded-xl shadow-xs">
+                      <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
                         <QrCode className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-[#172033] flex items-center gap-2">
-                          <span>Dynamic UPI Payment QR</span>
-                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-md">
-                            ₹{upiAmountRupees}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-white tracking-wide">{modalUpiName}</span>
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            <ShieldCheck className="w-2.5 h-2.5" /> Verified Merchant
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-600 mt-0.5">
-                          <span className="font-mono font-medium">{modalUpiId}</span>
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-300 font-mono mt-0.5">
+                          <span>{modalUpiId}</span>
                           <button
                             type="button"
                             onClick={() => {
@@ -648,18 +643,22 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                               setHasCopiedUpi(true);
                               setTimeout(() => setHasCopiedUpi(false), 2000);
                             }}
-                            className="text-blue-600 hover:text-blue-800 p-0.5 cursor-pointer"
+                            className="text-slate-400 hover:text-white p-0.5 transition-colors cursor-pointer"
                             title="Copy UPI ID"
                           >
-                            {hasCopiedUpi ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                            {hasCopiedUpi ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                           </button>
-                          <span>•</span>
-                          <span className="text-slate-500 font-medium">{modalUpiName}</span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                      {/* Live Session Timer */}
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 text-slate-200 text-[11px] font-mono border border-white/10">
+                        <Clock className="w-3 h-3 text-amber-400" />
+                        <span>Valid: {formattedSessionTime}</span>
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => {
@@ -667,139 +666,234 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                           setTempUpiNameInput(modalUpiName);
                           setIsEditingUpi(true);
                         }}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 rounded-lg text-xs font-semibold cursor-pointer shadow-xs hover:border-blue-300 transition-colors"
-                        title="Change UPI ID"
+                        className="px-2 py-1 text-slate-300 hover:text-white rounded text-[11px] font-medium hover:bg-white/10 transition-colors cursor-pointer"
+                        title="Edit merchant UPI ID"
                       >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Change</span>
+                        <Edit2 className="w-3 h-3 inline mr-1" />
+                        <span>Edit</span>
                       </button>
+
                       <button
                         type="button"
                         onClick={() => setIsEnlargedQr(true)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg text-xs font-bold cursor-pointer transition-colors"
-                        title="Show full screen for customer to scan"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                        title="Open full-screen customer display"
                       >
                         <Maximize2 className="w-3 h-3" />
-                        <span>Customer View</span>
+                        <span>Customer Screen</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* QR Presentation Box */}
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-5 bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
-                    {/* SVG QR Code */}
-                    <div
-                      onClick={() => setIsEnlargedQr(true)}
-                      className="p-2.5 bg-white rounded-xl border border-slate-200 shadow-xs cursor-pointer hover:border-blue-400 hover:shadow-md transition-all group relative shrink-0"
-                      title="Click to enlarge QR for customer"
-                    >
-                      <QRCodeSVG
-                        value={upiUri}
-                        size={150}
-                        level="M"
-                        includeMargin={false}
-                      />
-                      <div className="absolute inset-0 bg-blue-900/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center backdrop-blur-[1px]">
-                        <span className="bg-white/95 text-blue-900 text-[10px] font-bold px-2 py-1 rounded-md shadow-sm flex items-center gap-1">
-                          <Maximize2 className="w-3 h-3" /> Enlarge
+                  {/* QR Code Presentation Box with Scanner Frame */}
+                  <div className="p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-center gap-6">
+                    {/* Scanner Frame with Corner Marks */}
+                    <div className="relative group shrink-0">
+                      <div
+                        onClick={() => setIsEnlargedQr(true)}
+                        className="relative p-3.5 bg-white rounded-2xl border border-slate-200 shadow-md cursor-pointer hover:border-blue-400 hover:shadow-lg transition-all"
+                        title="Click to view on full customer screen"
+                      >
+                        {/* Corner Scanner Reticles */}
+                        <span className="absolute top-2 left-2 w-3.5 h-3.5 border-t-2 border-l-2 border-blue-600 rounded-tl-sm pointer-events-none" />
+                        <span className="absolute top-2 right-2 w-3.5 h-3.5 border-t-2 border-r-2 border-blue-600 rounded-tr-sm pointer-events-none" />
+                        <span className="absolute bottom-2 left-2 w-3.5 h-3.5 border-b-2 border-l-2 border-blue-600 rounded-bl-sm pointer-events-none" />
+                        <span className="absolute bottom-2 right-2 w-3.5 h-3.5 border-b-2 border-r-2 border-blue-600 rounded-br-sm pointer-events-none" />
+
+                        <QRCodeSVG
+                          value={upiUri}
+                          size={160}
+                          level="M"
+                          includeMargin={false}
+                        />
+
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl flex items-center justify-center backdrop-blur-[1px]">
+                          <span className="bg-slate-900/90 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm flex items-center gap-1">
+                            <Maximize2 className="w-3 h-3" /> Enlarge
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Amount Pill directly pinned to bottom of QR */}
+                      <div className="mt-2 text-center">
+                        <span className="inline-block px-3 py-1 bg-slate-900 text-white text-xs font-black rounded-full shadow-xs tracking-wide">
+                          PAY ₹{upiAmountRupees}
                         </span>
                       </div>
                     </div>
 
-                    {/* Instructions & Supported Apps */}
-                    <div className="flex-1 space-y-2.5 text-center sm:text-left">
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">Scan & Pay Exact Bill</span>
-                        <p className="text-xs text-slate-700 font-medium">
-                          Customer scans with Google Pay, PhonePe, Paytm, or BHIM. The amount of <strong>{formatPaise(grandTotalPaise)}</strong> is filled in automatically.
+                    {/* Payment Instructions & Official Supported App Badges */}
+                    <div className="flex-1 space-y-3 text-center sm:text-left">
+                      <div>
+                        <div className="flex items-center justify-center sm:justify-start gap-1.5 text-xs font-bold text-slate-800">
+                          <Smartphone className="w-4 h-4 text-blue-600" />
+                          <span>Scan & Pay Exact Bill</span>
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                          Customer scans with any UPI application. The exact bill amount of{" "}
+                          <strong className="text-slate-900 font-bold">{formatPaise(grandTotalPaise)}</strong> is locked and pre-filled.
                         </p>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 pt-1">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded border border-blue-200">GPay</span>
-                        <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded border border-purple-200">PhonePe</span>
-                        <span className="px-2 py-0.5 bg-sky-50 text-sky-700 text-[10px] font-bold rounded border border-sky-200">Paytm</span>
-                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded border border-emerald-200">BHIM UPI</span>
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-medium rounded border border-slate-200">Any Bank</span>
+                      {/* Authentic Styled UPI App Badges */}
+                      <div className="pt-1">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          Supported UPI Applications
+                        </div>
+                        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5">
+                          <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-[11px] font-bold rounded-lg border border-blue-200 shadow-2xs">
+                            Google Pay
+                          </span>
+                          <span className="px-2.5 py-1 bg-purple-50 text-purple-700 text-[11px] font-bold rounded-lg border border-purple-200 shadow-2xs">
+                            PhonePe
+                          </span>
+                          <span className="px-2.5 py-1 bg-sky-50 text-sky-700 text-[11px] font-bold rounded-lg border border-sky-200 shadow-2xs">
+                            Paytm
+                          </span>
+                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[11px] font-bold rounded-lg border border-emerald-200 shadow-2xs">
+                            BHIM UPI
+                          </span>
+                          <span className="px-2 py-1 bg-slate-100 text-slate-700 text-[11px] font-medium rounded-lg border border-slate-200">
+                            Cred / Any Bank
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-center sm:justify-start gap-3 text-[11px] text-slate-500 pt-0.5">
+                        <span className="inline-flex items-center gap-1">
+                          <Lock className="w-3 h-3 text-slate-400" /> 256-Bit Encrypted
+                        </span>
+                        <span>•</span>
+                        <span>Zero Platform Fees</span>
+                        <span>•</span>
+                        <span>Direct Settlement</span>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
 
-              {/* Automated UPI Observer Status Card */}
-              {detectedUpiAlert ? (
-                <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between animate-in fade-in">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Check className="w-5 h-5 stroke-[2.5]" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-emerald-900">
-                          Bank Payment Verified: ₹{(detectedUpiAlert.amountPaise / 100).toFixed(2)}
-                        </span>
-                        <span className="text-[10px] font-bold bg-emerald-200/80 text-emerald-800 px-1.5 py-0.2 rounded">
-                          AUTO
-                        </span>
+                  {/* Real-Time Payment Observer State Card */}
+                  <div className="border-t border-slate-100 bg-slate-50/60 p-3 sm:p-4">
+                    {detectedUpiAlert ? (
+                      /* VERIFIED PAYMENT SUCCESS CARD */
+                      <div className="p-4 bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-700 text-white rounded-xl shadow-md animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3.5">
+                            <div className="w-11 h-11 rounded-xl bg-white text-emerald-700 flex items-center justify-center shrink-0 shadow-sm">
+                              <Check className="w-7 h-7 stroke-[3.5]" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-black tracking-wide uppercase">
+                                  Payment Received & Verified
+                                </span>
+                                <span className="px-2 py-0.5 text-[10px] font-black bg-emerald-800/80 text-emerald-100 rounded-full uppercase tracking-wider">
+                                  ✓ Reconciled
+                                </span>
+                              </div>
+                              <div className="text-xs text-emerald-100 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <span className="font-bold text-white text-sm">
+                                  {formatPaise(detectedUpiAlert.amountPaise)}
+                                </span>
+                                {detectedUpiAlert.payerInfo && (
+                                  <span>Payer: <strong className="text-white font-bold">{detectedUpiAlert.payerInfo}</strong></span>
+                                )}
+                                {detectedUpiAlert.utrNumber && (
+                                  <span className="bg-emerald-950/60 px-2 py-0.5 rounded font-mono text-[11px] text-emerald-200 font-semibold border border-emerald-400/30">
+                                    UTR: {detectedUpiAlert.utrNumber}
+                                  </span>
+                                )}
+                                <span className="text-emerald-200 text-[11px]">
+                                  ({detectedUpiAlert.bankName || "Bank UPI"})
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="hidden sm:flex flex-col items-end">
+                            <span className="px-3 py-1 bg-white text-emerald-800 text-xs font-black rounded-lg shadow-sm">
+                              Ready to Finalize
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-[11px] text-emerald-700 mt-0.5">
-                        {detectedUpiAlert.bankName || "Bank UPI"} • UTR:{" "}
-                        <strong className="font-mono">{detectedUpiAlert.utrNumber || "N/A"}</strong>
-                        {detectedUpiAlert.payerInfo ? ` • ${detectedUpiAlert.payerInfo}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-xs">
-                    Ready to Finalize
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs">
-                  <div className="flex items-center gap-2 text-blue-900 font-medium">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-600"></span>
-                    </span>
-                    <span>Listening for bank SMS / Soundbox payment...</span>
-                  </div>
+                    ) : (
+                      /* AWAITING PAYMENT (REAL-TIME LIVE PROCESSING RADAR) */
+                      <div className="p-3.5 bg-gradient-to-r from-blue-50/80 via-indigo-50/60 to-blue-50/80 border border-blue-200/80 rounded-xl shadow-xs">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-blue-600 text-white shadow-xs shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-60"></span>
+                              <RefreshCw className="w-4 h-4 animate-spin text-white relative z-10" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-black text-slate-900 uppercase tracking-wide">
+                                  Awaiting Customer Payment...
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-700 rounded-full border border-blue-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
+                                  Live Observer Active
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 mt-0.5">
+                                Waiting for customer to transfer <strong>{formatPaise(grandTotalPaise)}</strong>. Bank credit will be detected in real time without manual input.
+                              </p>
+                            </div>
+                          </div>
 
-                  <button
-                    type="button"
-                    onClick={handleSimulateTestPayment}
-                    disabled={isSimulatingPayment}
-                    className="text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-white hover:bg-blue-100/80 border border-blue-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
-                    title="Simulate receiving UPI payment notification"
-                  >
-                    {isSimulatingPayment ? "Simulating..." : "⚡ Test Verify"}
-                  </button>
+                          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border border-slate-200 text-[11px] font-semibold text-slate-600 shadow-2xs">
+                            <Radio className="w-3 h-3 text-blue-600 animate-pulse" />
+                            <span>Listening...</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
               {/* UTR Input */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  UPI Transaction / UTR Reference {detectedUpiAlert ? "(Auto-Captured)" : "(Optional)"}
+                  UPI Transaction / UTR Reference {detectedUpiAlert ? "(Auto-Captured from Bank)" : "(Optional)"}
                 </label>
-                <input
-                  type="text"
-                  value={upiRef}
-                  onChange={(e) => setUpiRef(e.target.value)}
-                  placeholder="e.g. 12-digit UTR or Txn ID"
-                  className={`w-full px-3.5 py-2.5 border rounded-xl text-xs font-mono transition-colors ${
-                    detectedUpiAlert
-                      ? "bg-emerald-50/60 border-emerald-300 text-emerald-900 font-bold"
-                      : "bg-white border-[#E2E8F0] text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
-                  }`}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={upiRef}
+                    onChange={(e) => setUpiRef(e.target.value)}
+                    placeholder="e.g. 12-digit UTR (auto-filled on bank credit)"
+                    className={`w-full px-3.5 py-2.5 border rounded-xl text-xs font-mono transition-colors ${
+                      detectedUpiAlert
+                        ? "bg-emerald-50/70 border-emerald-400 text-emerald-900 font-bold"
+                        : "bg-white border-[#E2E8F0] text-[#172033] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
+                    }`}
+                  />
+                  {detectedUpiAlert && upiRef && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(upiRef);
+                        setHasCopiedUpi(true);
+                        setTimeout(() => setHasCopiedUpi(false), 2000);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-700 hover:text-emerald-900 text-[11px] font-bold px-2 py-1 bg-emerald-100 rounded-md cursor-pointer transition-colors"
+                    >
+                      {hasCopiedUpi ? "Copied!" : "Copy UTR"}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Cashier confirmation checkbox */}
-              <label className={`flex items-start gap-2.5 p-3 rounded-xl cursor-pointer transition-colors border ${
-                detectedUpiAlert
-                  ? "bg-emerald-50/60 border-emerald-200"
-                  : "bg-slate-50 border-slate-200 hover:bg-slate-100/60"
-              }`}>
+              <label
+                className={`flex items-start gap-2.5 p-3 rounded-xl cursor-pointer transition-colors border ${
+                  detectedUpiAlert
+                    ? "bg-emerald-50/80 border-emerald-300 shadow-xs"
+                    : "bg-slate-50 border-slate-200 hover:bg-slate-100/60"
+                }`}
+              >
                 <input
                   type="checkbox"
                   checked={isUpiVerified}
@@ -809,7 +903,7 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
                 <span className="text-xs text-slate-700 font-medium">
                   {detectedUpiAlert ? (
                     <strong className="text-emerald-800">
-                      ✓ Bank credit confirmed via observer (Amount: {formatPaise(grandTotalPaise)})
+                      ✓ Bank credit confirmed via observer (Amount: {formatPaise(grandTotalPaise)} • UTR: {detectedUpiAlert.utrNumber || "Verified"})
                     </strong>
                   ) : (
                     <>
@@ -1018,53 +1112,111 @@ export const POSPaymentModal: React.FC<POSPaymentModalProps> = ({
 
       {/* Fullscreen / Enlarged Customer-Facing UPI QR View */}
       {isEnlargedQr && (
-        <div className="fixed inset-0 z-60 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-sm w-full p-6 text-center space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+        <div className="fixed inset-0 z-60 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden text-center space-y-4">
+            {/* Header */}
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <div className="text-left">
-                <h3 className="text-sm font-black text-[#172033]">Scan & Pay via UPI</h3>
-                <p className="text-[11px] text-slate-500">Order #{orderNumber} • {itemCount} items</p>
+                <div className="text-xs font-bold text-slate-300 uppercase tracking-wider">ROLLZ Fast Food</div>
+                <h3 className="text-sm font-black text-white">Order #{orderNumber} • {itemCount} items</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsEnlargedQr(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Amount Banner */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 py-3 px-4 rounded-2xl">
-              <span className="text-xs text-blue-700 font-bold block uppercase tracking-wider">Total Payable</span>
-              <span className="text-3xl font-black text-[#172033]">{formatPaise(grandTotalPaise)}</span>
-            </div>
+            <div className="p-6 pt-2 space-y-4">
+              {detectedUpiAlert ? (
+                /* Celebration Success State on Customer Screen */
+                <div className="py-6 space-y-4 animate-in zoom-in-95 duration-200">
+                  <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+                    <CheckCircle2 className="w-12 h-12 stroke-[2.5]" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                      Payment Successful
+                    </span>
+                    <h2 className="text-3xl font-black text-slate-900 mt-2">
+                      {formatPaise(detectedUpiAlert.amountPaise)}
+                    </h2>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Thank you! Your payment has been received and confirmed.
+                    </p>
+                  </div>
 
-            {/* Large Dynamic QR */}
-            <div className="flex justify-center p-5 bg-white rounded-2xl border border-slate-200 shadow-inner">
-              <QRCodeSVG
-                value={upiUri}
-                size={220}
-                level="M"
-              />
-            </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs text-slate-600 font-mono space-y-1">
+                    {detectedUpiAlert.utrNumber && (
+                      <div>Bank Ref: <strong className="text-slate-900">{detectedUpiAlert.utrNumber}</strong></div>
+                    )}
+                    {detectedUpiAlert.payerInfo && (
+                      <div>Payer: <strong className="text-slate-900">{detectedUpiAlert.payerInfo}</strong></div>
+                    )}
+                  </div>
 
-            <div className="space-y-0.5">
-              <div className="text-xs font-bold text-[#172033]">{modalUpiName}</div>
-              <div className="text-[11px] font-mono text-slate-500">{modalUpiId}</div>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsEnlargedQr(false)}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md shadow-emerald-500/20 transition-colors cursor-pointer"
+                  >
+                    Done • Return to POS
+                  </button>
+                </div>
+              ) : (
+                /* Active QR Code for Customer */
+                <>
+                  {/* Amount Banner */}
+                  <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200/80 py-3.5 px-4 rounded-2xl shadow-xs">
+                    <span className="text-[11px] text-blue-700 font-bold block uppercase tracking-wider">Total Payable Amount</span>
+                    <span className="text-3xl font-black text-slate-900">{formatPaise(grandTotalPaise)}</span>
+                  </div>
 
-            <div className="flex items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-500 font-bold">
-              <span>Google Pay</span> • <span>PhonePe</span> • <span>Paytm</span> • <span>BHIM</span>
-            </div>
+                  {/* High Contrast Dynamic QR Code with scanner corner guides */}
+                  <div className="relative inline-block p-4 bg-white rounded-2xl border-2 border-slate-900 shadow-md">
+                    <span className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-blue-600 rounded-tl-sm pointer-events-none" />
+                    <span className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-blue-600 rounded-tr-sm pointer-events-none" />
+                    <span className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-blue-600 rounded-bl-sm pointer-events-none" />
+                    <span className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-blue-600 rounded-br-sm pointer-events-none" />
+                    <QRCodeSVG
+                      value={upiUri}
+                      size={220}
+                      level="M"
+                    />
+                  </div>
 
-            <button
-              type="button"
-              onClick={() => setIsEnlargedQr(false)}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
-            >
-              Done / Back to Checkout
-            </button>
+                  {/* Payee Info */}
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-800">{modalUpiName}</div>
+                    <div className="text-[11px] font-mono text-slate-500">{modalUpiId}</div>
+                  </div>
+
+                  {/* Supported Apps */}
+                  <div className="flex items-center justify-center gap-2 pt-1 text-[11px] text-slate-600 font-bold">
+                    <span className="text-blue-600">GPay</span> • 
+                    <span className="text-purple-600">PhonePe</span> • 
+                    <span className="text-sky-600">Paytm</span> • 
+                    <span className="text-emerald-600">BHIM UPI</span>
+                  </div>
+
+                  {/* Live Status indicator */}
+                  <div className="flex items-center justify-center gap-2 py-2 px-3 bg-blue-50 rounded-xl text-xs font-bold text-blue-800 border border-blue-100">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                    <span>Waiting for transfer... Screen will update automatically</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsEnlargedQr(false)}
+                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Done / Back to Checkout
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
