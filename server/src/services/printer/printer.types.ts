@@ -1,5 +1,6 @@
 export type PrintDestinationType = "CUSTOMER_RECEIPT" | "KITCHEN";
 export type PrintJobStatus = "PENDING" | "PRINTING" | "PRINTED" | "FAILED";
+export type PrinterType = "MOCK" | "NETWORK_TCP" | "USB" | "BLUETOOTH";
 
 export interface FormattedPrintPayload {
   destination: PrintDestinationType;
@@ -24,6 +25,7 @@ export interface PrintResult {
 
 export interface IPrinterAdapter {
   name: string;
+  type?: PrinterType;
   print(
     jobId: string,
     destination: PrintDestinationType,

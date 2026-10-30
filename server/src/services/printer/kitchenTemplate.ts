@@ -44,7 +44,7 @@ export function generateKitchenTicketText(data: KitchenTicketData): FormattedPri
     lines.push(divider("="));
   }
 
-  lines.push(padCenter("ROLLZ — KITCHEN ORDER TICKET (KOT)"));
+  lines.push(padCenter("ROLLZ - KITCHEN ORDER TICKET (KOT)"));
   lines.push(divider("="));
 
   const dateObj = new Date(data.createdAt);
@@ -84,7 +84,7 @@ export function generateKitchenTicketText(data: KitchenTicketData): FormattedPri
     }
     if (Array.isArray(mods) && mods.length > 0) {
       for (const m of mods) {
-        lines.push(`     • ${m.name || m.optionName}`);
+        lines.push(`     - ${m.name || m.optionName}`);
       }
     }
 

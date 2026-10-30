@@ -6,7 +6,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs = require('fs'); const path = require('path'); for (const dir of ['scripts', 'assets']) { const src = path.join('src','services','printer', dir); const dst = path.join('dist','services','printer', dir); if (fs.existsSync(src)) { fs.mkdirSync(dst, { recursive: true }); for (const f of fs.readdirSync(src)) fs.copyFileSync(path.join(src, f), path.join(dst, f)); } }\"",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --import ./tests/preload.ts --test --test-concurrency=1 tests/**/*.test.ts",

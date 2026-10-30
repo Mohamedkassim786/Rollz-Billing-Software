@@ -257,12 +257,15 @@ export class PaymentService {
 
       // 5f. Format & create Customer Receipt PrintJob
       const receiptPayload = generateCustomerReceiptText({
-        restaurantName: "ROLLZ",
+        restaurantName: order.branch.name || "ROLLZ",
         branchName: order.branch.name,
         branchAddress: order.branch.address,
         branchPhone: order.branch.phone,
         gstin: order.branch.gstin,
         taxMode: order.branch.taxMode,
+        receiptHeader: order.branch.receiptHeader || null,
+        receiptFooter: order.branch.receiptFooter || null,
+        logoPath: order.branch.logoPath || null,
         invoiceNumber,
         orderNumber: order.orderNumber,
         orderType: order.orderType,
@@ -283,8 +286,6 @@ export class PaymentService {
           changeDue: p.changeDue,
           externalReference: p.externalReference,
         })),
-        receiptHeader: order.branch.receiptHeader,
-        receiptFooter: order.branch.receiptFooter,
         isReprint: false,
       });
 
@@ -300,36 +301,39 @@ export class PaymentService {
         },
       });
 
-      // 5g. CRITICAL INVARIANT: Generate & create Kitchen Order Ticket ONLY because order is confirmed & paid
-      const kitchenPayload = generateKitchenTicketText({
-        orderNumber: order.orderNumber,
-        orderType: order.orderType,
-        tableNumber: order.tableNumber,
-        cashierName: cashier.displayName,
-        createdAt: createdInvoice.createdAt,
-        items: order.items,
-        orderNotes: order.notes,
-        isReprint: false,
-      });
+      // 5g. Generate & create Kitchen Order Ticket if kitchen printer is enabled
+      let kitchenPrintJob: any = null;
+      if (order.branch.kitchenPrinterEnabled) {
+        const kitchenPayload = generateKitchenTicketText({
+          orderNumber: order.orderNumber,
+          orderType: order.orderType,
+          tableNumber: order.tableNumber,
+          cashierName: cashier.displayName,
+          createdAt: createdInvoice.createdAt,
+          items: order.items,
+          orderNotes: order.notes,
+          isReprint: false,
+        });
 
-      const kitchenPrintJob = await tx.printJob.create({
-        data: {
-          orderId: order.id,
-          invoiceId: createdInvoice.id,
-          branchId,
-          destination: "KITCHEN",
-          status: "PENDING",
-          attemptCount: 0,
-          payloadSnapshot: kitchenPayload as any,
-        },
-      });
+        kitchenPrintJob = await tx.printJob.create({
+          data: {
+            orderId: order.id,
+            invoiceId: createdInvoice.id,
+            branchId,
+            destination: "KITCHEN",
+            status: "PENDING",
+            attemptCount: 0,
+            payloadSnapshot: kitchenPayload as any,
+          },
+        });
+      }
 
       return {
         order: updatedOrder,
         invoice: createdInvoice,
         payments: createdPayments,
         customer: customerRecord,
-        printJobs: [customerPrintJob, kitchenPrintJob],
+        printJobs: [customerPrintJob, ...(kitchenPrintJob ? [kitchenPrintJob] : [])],
       };
     });
 

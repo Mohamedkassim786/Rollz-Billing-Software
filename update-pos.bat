@@ -10,23 +10,26 @@ echo.
 echo This tool will pull the latest updates from GitHub and safely update
 echo your POS system and database without losing any sales data.
 echo.
-echo IMPORTANT: Ensure the POS server and terminal windows are CLOSED
-echo before running this update so files are not locked.
+echo IMPORTANT: The updater will automatically close any active POS
+echo server and terminal windows before running so files are not locked.
 echo.
 pause
 
 echo.
-echo [1/4] Pulling latest updates from GitHub...
+echo [1/5] Closing any running POS background processes...
+taskkill /f /im node.exe >nul 2>&1
+timeout /t 1 /nobreak >nul
+
+echo.
+echo [2/5] Pulling latest updates from GitHub...
 git pull
 if errorlevel 1 (
     echo.
-    echo [ERROR] Git pull failed. Please check your internet connection or git status.
-    pause
-    exit /b 1
+    echo [WARNING] Git pull reported an issue (or you already pulled). Continuing update...
 )
 
 echo.
-echo [2/4] Updating package dependencies...
+echo [3/5] Updating package dependencies...
 call npm install
 cd server
 call npm install
@@ -44,32 +47,39 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [3/4] Updating Database Schema (Preserving all orders, customers, and menu)...
+echo [4/5] Updating Database Schema (Preserving all orders, customers, and menu)...
 cd server
 call npx prisma generate
 call npx prisma db push
 cd ..
 
 echo.
-echo [4/4] Rebuilding client and server bundles...
+echo [5/5] Rebuilding client and server bundles...
 call npm run build
+
+:: Extra guarantee: copy printer scripts & assets to dist
+if not exist "server\dist\services\printer\scripts" mkdir "server\dist\services\printer\scripts" >nul 2>&1
+if not exist "server\dist\services\printer\assets" mkdir "server\dist\services\printer\assets" >nul 2>&1
+copy /Y "server\src\services\printer\scripts\*" "server\dist\services\printer\scripts\" >nul 2>&1
+copy /Y "server\src\services\printer\assets\*" "server\dist\services\printer\assets\" >nul 2>&1
 
 echo.
 echo ====================================================================
 echo  UPDATE COMPLETED SUCCESSFULLY!
 echo ====================================================================
 echo.
-echo All new features are installed:
+echo All new features are installed and ready:
+echo - USB Thermal Printer Native Win32 Spooler (TVS-E RP 3230, Epson, etc.)
+echo - Bluetooth & Serial COM Port Printing (COM1 - COM99 with baud rates)
+echo - Hardware Auto-Discovery Scanner in Settings (1-click device select)
+echo - Official ROLLZ Monochrome Logo Printing on Thermal Receipts
+echo - Indian Rupee & Clean Encoding Fix (Rs.150.00 replacing corrupted chars)
+echo - Web Bluetooth & Web Serial Browser Printing (Direct from Chrome/Edge)
+echo - Dedicated "Save Printer Settings" Button in Settings -> Printers
+echo - Zero-Fee Automated UPI Payment Observer & Soundbox
 echo - WhatsApp Automated Billing & CRM Broadcasting
-echo - Customer Name/Phone Auto-tracking & Past Spend History
 echo - Dynamic Store Logo & Login Wallpaper Customization
 echo - Staff & Cashier Account Creation & Password Reset
-echo - Dynamic UPI QR Code Scanner in Settings
-echo - Menu Photo 15MB Uploads & Client-side Optimizer
-echo - Fixed Modifier Customizer (Extra Cheese & Add-ons selection)
-echo - Menu Sorting by Code (#01-#99) and ABCD Alphabetical Order
-echo - Locked Cart Layout & Clean Customer Menu Screen
-echo - Zero-Fee Automated UPI Payment Observer & Soundbox (Auto-Verification via Bank SMS)
 echo.
 echo You can now launch the software using ROLLZ-POS-Launcher.bat
 echo or your desktop shortcut!

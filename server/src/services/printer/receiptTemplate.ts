@@ -2,7 +2,7 @@ import { FormattedPrintPayload } from "./printer.types";
 
 function formatPaise(paise: number): string {
   const rupees = paise / 100;
-  return "₹" + rupees.toLocaleString("en-IN", {
+  return "Rs." + rupees.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -64,6 +64,7 @@ export interface ReceiptData {
   }>;
   receiptHeader?: string | null;
   receiptFooter?: string | null;
+  logoPath?: string | null;
   isReprint?: boolean;
   reprintReason?: string | null;
 }
@@ -165,7 +166,7 @@ export function generateCustomerReceiptText(data: ReceiptData): FormattedPrintPa
   lines.push("PAYMENT SUMMARY:");
   if (data.payments && data.payments.length > 0) {
     for (const p of data.payments) {
-      lines.push(row(`  • ${p.method}:`, formatPaise(p.amount)));
+      lines.push(row(`  - ${p.method}:`, formatPaise(p.amount)));
       if (p.method === "CASH" && p.tenderedAmount !== undefined && p.tenderedAmount !== null) {
         lines.push(row("    Cash Tendered:", formatPaise(p.tenderedAmount)));
         lines.push(row("    Change Returned:", formatPaise(p.changeDue || 0)));
@@ -204,6 +205,7 @@ export function generateCustomerReceiptText(data: ReceiptData): FormattedPrintPa
     metadata: {
       grandTotal: data.grandTotal,
       itemCount: data.items.length,
+      logoPath: data.logoPath || null,
     },
   };
 }

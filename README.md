@@ -24,7 +24,15 @@ A production-grade, local-first Point of Sale (POS), billing terminal, dual ther
 - **👥 Staff & Cashier Management**: Create cashier accounts, toggle active/inactive access, and securely reset staff passwords from the admin settings.
 - **🔐 User Account & Password Control**: View account details, edit display names, and securely change passwords with hash verification.
 - **🧾 GST & Non-GST Billing**: Toggle between 5% GST (2.5% CGST + 2.5% SGST with GSTIN) or Non-GST (0% Simple Bill) with a single switch.
-- **🖨️ Dual Thermal Receipts & Kitchen KOT**: Independent hardware printing for customer bills and kitchen tickets (supports both ESC/POS network TCP port 9100 and virtual development mock).
+- **🖨️ Complete Thermal Printing Subsystem (USB, Bluetooth, Network)**:
+  - **USB Win32 RAW Spooler**: Direct byte-level hardware printing via Windows `winspool.drv` for USB thermal receipt printers (TVS-E RP 3230, Epson TM-T82, Posiflex, Rongta, NGX) with automated paper cutting and cash drawer kick.
+  - **Bluetooth & Serial COM Ports**: Print wirelessly or via serial cables (`COM1`–`COM99`) with configurable baud rates.
+  - **Hardware Auto-Discovery Scanner**: 1-click auto-detection of all installed Windows spooler printers and COM ports directly from **Settings &rarr; Thermal Printers**.
+  - **Official ROLLZ Monochrome Logo Printing**: Pre-centered 1-bit ESC/POS raster bitmap (`GS v 0`) printed at the top of every customer bill.
+  - **Indian Rupee (`Rs.`) & Clean Encoding**: Formats as `Rs.150.00` and cleans bullet characters so ESC/POS printers never print corrupted characters (`Γé╣` or `ΓÇó`).
+  - **Web Bluetooth & Web Serial**: Direct browser-level wireless printing from Chrome or Edge without driver installation.
+  - **Independent Kitchen KOT**: Separate toggle and printer destination for Kitchen Order Tickets.
+  - **Dedicated Save Button**: Save printer settings directly inside the Thermal Printers tab with instant feedback.
 - **🖼️ Smart Menu Photo Optimizer**: Supports menu photos up to 15MB with automatic detection of photos > 2MB and high-speed client-side WebP compression.
 - **💾 Automated Database Backups & Safe Test Restoration**: One-click compressed PostgreSQL dumps with automated retention pruning and safe test restoration against `rollz_pos_test`.
 - **🖥️ One-Click Windows Desktop Launcher**: Native desktop shortcut and borderless application window launcher.
@@ -176,17 +184,18 @@ The system includes a built-in automated UPI observer that replaces expensive pa
 
 ## 🔄 One-Click System Updater (`update-pos.bat`)
 
-To deploy updates to secondary counter laptops or update the main machine:
+To deploy updates to secondary counter laptops or update your billing machine:
 
-1. Close the POS terminal and backend server windows.
-2. Double-click **`update-pos.bat`**.
-3. The automated script will:
-   - Run `git pull` to fetch the latest code from GitHub.
+1. Double-click **`update-pos.bat`** (or open terminal, run `git pull`, and double-click `update-pos.bat`).
+2. The automated script will:
+   - Safely close any active POS processes so files are not locked.
+   - Run `git pull` to fetch the latest code and assets from GitHub.
    - Install all root, server, and client npm dependencies.
    - Check and auto-install Cloudflare Tunnel (`cloudflared`) via `winget` if missing.
    - Run `prisma generate` and `prisma db push` to synchronize any schema updates safely without data loss.
    - Rebuild production client and server bundles.
-4. Once completed, launch the POS using the desktop shortcut.
+   - Ensure all printer drivers, PowerShell scripts, and ESC/POS logo assets are in place.
+3. Once completed, launch the POS using `ROLLZ-POS-Launcher.bat` or your desktop shortcut!
 
 ---
 
@@ -232,7 +241,12 @@ The Settings page is organized into 5 dedicated tabs:
    - Update display name.
    - Secure password change form with current password verification.
 4. **Thermal Printers**:
-   - Independent configuration for Customer Bill and Kitchen KOT printers (Mock or Network TCP `IP:Port`, 80mm/58mm width, toggle on/off).
+   - **Hardware Device Scanner**: Auto-detects connected Windows printers (e.g. `TVS-E RP 3230`) and active COM ports (e.g. `COM3`) with click-to-select pills.
+   - **Customer Receipt Printer**: Configure USB (Win32 Spooler), Bluetooth (Serial COM), Network TCP (`IP:Port`), or Mock, with paper width (80mm / 58mm).
+   - **Kitchen KOT Printer**: Toggle KOT printing independently or route to a dedicated kitchen printer / counter printer.
+   - **ESC/POS Monochrome Logo**: Automatically prepends the sharp, centered ROLLZ logo bitmap to customer bills.
+   - **Test Print & Direct Web Bluetooth**: Test receipts with live configuration overrides and browser-native BLE test button.
+   - **Dedicated Save Button**: Prominent "Save Printer Settings" button located right inside the Printers tab.
 5. **Backups & LAN**:
    - One-click PostgreSQL backup generation.
    - View local network IP addresses for connecting secondary tablets and laptops.

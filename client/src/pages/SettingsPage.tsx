@@ -22,6 +22,9 @@ import {
   Image as ImageIcon,
   HardDrive,
   ShieldCheck,
+  Bluetooth,
+  Usb,
+  Radio,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../context/AuthContext";
@@ -29,6 +32,7 @@ import { settingsApi, BackupItem, HostInfo } from "../api/settings.api";
 import { usersApi, StaffUser } from "../api/users.api";
 import { authApi } from "../api/auth.api";
 import { upiObserverApi, UpiBankAlertRecord } from "../api/upiObserver.api";
+import { printViaWebBluetooth, isWebBluetoothSupported } from "../utils/webPrinter";
 
 export const SettingsPage: React.FC = () => {
   const { user, branch, refreshAuthStatus } = useAuth();
@@ -89,6 +93,13 @@ export const SettingsPage: React.FC = () => {
   const [kitchenPrinterAddress, setKitchenPrinterAddress] = useState("192.168.1.201:9100");
   const [kitchenPrinterPaperWidth, setKitchenPrinterPaperWidth] = useState<number>(80);
   const [kitchenPrinterEnabled, setKitchenPrinterEnabled] = useState(true);
+
+  // Discovered Hardware Devices
+  const [detectedPrinters, setDetectedPrinters] = useState<string[]>([]);
+  const [detectedPorts, setDetectedPorts] = useState<string[]>([]);
+  const [defaultSysPrinter, setDefaultSysPrinter] = useState<string>("");
+  const [isScanningDevices, setIsScanningDevices] = useState(false);
+  const [isWebBtTesting, setIsWebBtTesting] = useState(false);
 
   // Staff & Cashier Management
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
@@ -256,13 +267,31 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const loadPrinterDevices = async () => {
+    setIsScanningDevices(true);
+    try {
+      const res = await settingsApi.getPrinterDevices();
+      setDetectedPrinters(res.printers || []);
+      setDetectedPorts(res.serialPorts || []);
+      setDefaultSysPrinter(res.defaultPrinter || "");
+    } catch (err) {
+      console.warn("Failed to discover printer devices:", err);
+    } finally {
+      setIsScanningDevices(false);
+    }
+  };
+
   useEffect(() => {
     loadSettings();
+    loadPrinterDevices();
   }, []);
 
   useEffect(() => {
     if (activeTab === "STAFF") {
       loadStaffUsers();
+    }
+    if (activeTab === "PRINTERS") {
+      loadPrinterDevices();
     }
     if (user?.displayName) {
       setMyDisplayName(user.displayName);
@@ -493,15 +522,75 @@ export const SettingsPage: React.FC = () => {
   };
 
   // Test Print
-  const handleTestPrint = async (destination: "CUSTOMER_RECEIPT" | "KITCHEN") => {
+  const handleTestPrint = async (
+    destination: "CUSTOMER_RECEIPT" | "KITCHEN",
+    options?: {
+      printerType?: string;
+      printerAddress?: string;
+      paperWidth?: number;
+    }
+  ) => {
     setTestingPrinter(destination);
     try {
-      const res = await settingsApi.testPrint(destination);
-      showNotification("success", res.message);
+      const pType =
+        options?.printerType ||
+        (destination === "CUSTOMER_RECEIPT" ? customerPrinterType : kitchenPrinterType);
+      const pAddress =
+        options?.printerAddress ||
+        (destination === "CUSTOMER_RECEIPT" ? customerPrinterAddress : kitchenPrinterAddress);
+      const pPaper =
+        options?.paperWidth ||
+        (destination === "CUSTOMER_RECEIPT" ? customerPrinterPaperWidth : kitchenPrinterPaperWidth);
+
+      const res = await settingsApi.testPrint({
+        destination,
+        printerType: pType,
+        printerAddress: pAddress,
+        paperWidth: pPaper,
+      });
+      showNotification("success", res.message || "Test print sent successfully!");
     } catch (err: any) {
-      showNotification("error", err.response?.data?.error?.message || "Test print failed");
+      showNotification(
+        "error",
+        err.response?.data?.error?.message || err.message || "Test print failed"
+      );
     } finally {
       setTestingPrinter(null);
+    }
+  };
+
+  // Direct Web Bluetooth Test Print (Direct from Chrome/Edge)
+  const handleWebBluetoothTest = async () => {
+    if (!isWebBluetoothSupported()) {
+      showNotification(
+        "error",
+        "Web Bluetooth is not supported on this browser. Please use Chrome or Edge over HTTPS/localhost."
+      );
+      return;
+    }
+    setIsWebBtTesting(true);
+    try {
+      const enc = new TextEncoder();
+      const testBytes = new Uint8Array([
+        0x1b,
+        0x40, // ESC @ (Init)
+        0x1b,
+        0x61,
+        0x01, // Center
+        ...enc.encode("=== ROLLZ POS WEB BLUETOOTH ===\n"),
+        ...enc.encode("Direct Browser Bluetooth Test OK!\n"),
+        ...enc.encode(new Date().toLocaleString() + "\n\n\n\n"),
+        0x1d,
+        0x56,
+        0x41,
+        0x03, // Cut
+      ]);
+      await printViaWebBluetooth(testBytes);
+      showNotification("success", "Web Bluetooth test receipt sent successfully!");
+    } catch (err: any) {
+      showNotification("error", "Web Bluetooth failed: " + (err.message || String(err)));
+    } finally {
+      setIsWebBtTesting(false);
     }
   };
 
@@ -1805,6 +1894,131 @@ export const SettingsPage: React.FC = () => {
       {/* ============================================================ */}
       {activeTab === "PRINTERS" && (
         <div className="space-y-6">
+          {/* Hardware Device Scanner & Auto-Detection Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-700/60 rounded-3xl p-6 text-white shadow-xl">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-700/60">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                  <Radio className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    Hardware Device Scanner
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                      Auto-Discovery
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Scans Windows Spooler for USB receipt printers and serial COM ports for Bluetooth/RFCOMM adapters.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={loadPrinterDevices}
+                disabled={isScanningDevices}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/30 disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isScanningDevices ? "animate-spin" : ""}`} />
+                <span>{isScanningDevices ? "Scanning Hardware..." : "Scan & Refresh Devices"}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              {/* Detected USB / Windows Printers */}
+              <div className="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-200 mb-2">
+                  <Usb className="w-4 h-4 text-emerald-400" />
+                  <span>Detected Windows Printers ({detectedPrinters.length})</span>
+                </div>
+                {detectedPrinters.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {detectedPrinters.map((p) => {
+                      const isDefault = defaultSysPrinter && p.toLowerCase() === defaultSysPrinter.toLowerCase();
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            setCustomerPrinterType("USB");
+                            setCustomerPrinterAddress(p);
+                            showNotification("success", `Selected "${p}" as Customer Receipt Printer (USB).`);
+                          }}
+                          title="Click to set as Customer Printer"
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-700/70 hover:bg-emerald-600/30 hover:border-emerald-500/50 border border-slate-600/50 text-slate-100 transition-all cursor-pointer"
+                        >
+                          <span>{p}</span>
+                          {isDefault && (
+                            <span className="text-[10px] bg-emerald-500/30 text-emerald-300 px-1.5 py-0.2 rounded font-bold">
+                              Default
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">No Windows spooler printers detected yet.</p>
+                )}
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Tip: Click any printer above to auto-fill the customer receipt printer address.
+                </p>
+              </div>
+
+              {/* Detected COM / Bluetooth Ports */}
+              <div className="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-200 mb-2">
+                  <Bluetooth className="w-4 h-4 text-blue-400" />
+                  <span>Detected Serial / COM Ports ({detectedPorts.length})</span>
+                </div>
+                {detectedPorts.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {detectedPorts.map((port) => (
+                      <button
+                        key={port}
+                        type="button"
+                        onClick={() => {
+                          setCustomerPrinterType("BLUETOOTH");
+                          setCustomerPrinterAddress(port);
+                          showNotification("success", `Selected "${port}" as Customer Receipt Printer (Bluetooth COM).`);
+                        }}
+                        title="Click to set as Customer Printer"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-700/70 hover:bg-blue-600/30 hover:border-blue-500/50 border border-slate-600/50 text-slate-100 transition-all cursor-pointer"
+                      >
+                        <span>{port}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">No serial COM ports detected on this system.</p>
+                )}
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Tip: Bluetooth printers paired as Virtual COM ports (e.g. COM3) appear here.
+                </p>
+              </div>
+            </div>
+
+            {/* Direct Web Bluetooth Support Card */}
+            <div className="mt-4 pt-3 border-t border-slate-700/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-slate-300">
+                <Bluetooth className="w-4 h-4 text-cyan-400" />
+                <span>
+                  <strong>Web Bluetooth Direct (Chrome / Edge):</strong> Connects directly to wireless mobile receipt printers from this browser without OS drivers.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleWebBluetoothTest}
+                disabled={isWebBtTesting}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-cyan-300 border border-cyan-500/30 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <Radio className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isWebBtTesting ? "Connecting Bluetooth..." : "Direct Web Bluetooth Test"}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Customer Receipt Printer */}
           <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 sm:p-7 shadow-card space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -1822,10 +2036,10 @@ export const SettingsPage: React.FC = () => {
                 type="button"
                 onClick={() => handleTestPrint("CUSTOMER_RECEIPT")}
                 disabled={testingPrinter === "CUSTOMER_RECEIPT" || !customerPrinterEnabled}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-[#172033] transition-all disabled:opacity-40 cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-[#2563EB] border border-blue-200 transition-all disabled:opacity-40 cursor-pointer"
               >
-                <Printer className="w-3.5 h-3.5 text-[#2563EB]" />
-                <span>{testingPrinter === "CUSTOMER_RECEIPT" ? "Testing..." : "Test Print"}</span>
+                <Printer className="w-3.5 h-3.5" />
+                <span>{testingPrinter === "CUSTOMER_RECEIPT" ? "Testing Receipt..." : "Test Receipt Print"}</span>
               </button>
             </div>
 
@@ -1849,24 +2063,67 @@ export const SettingsPage: React.FC = () => {
                 <label className="text-xs font-semibold text-[#172033]">Adapter / Type</label>
                 <select
                   value={customerPrinterType}
-                  onChange={(e) => setCustomerPrinterType(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setCustomerPrinterType(next);
+                    if (next === "USB" && detectedPrinters.length > 0 && !customerPrinterAddress) {
+                      setCustomerPrinterAddress(defaultSysPrinter || detectedPrinters[0]);
+                    } else if (next === "BLUETOOTH" && detectedPorts.length > 0 && !customerPrinterAddress) {
+                      setCustomerPrinterAddress(detectedPorts[0]);
+                    }
+                  }}
                   className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
                 >
+                  <option value="USB">USB (Windows Spooler / TVS-E / EPSON)</option>
+                  <option value="BLUETOOTH">BLUETOOTH (Serial COM / RFCOMM)</option>
+                  <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS LAN / WiFi)</option>
                   <option value="MOCK">MOCK (Virtual Log Adapter)</option>
-                  <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS LAN)</option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#172033]">Network Address (IP:Port)</label>
-                <input
-                  type="text"
-                  disabled={customerPrinterType === "MOCK"}
-                  value={customerPrinterAddress}
-                  onChange={(e) => setCustomerPrinterAddress(e.target.value)}
-                  placeholder="192.168.1.200:9100"
-                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
-                />
+                <label className="text-xs font-semibold text-[#172033]">
+                  {customerPrinterType === "USB"
+                    ? "Windows Printer Name"
+                    : customerPrinterType === "BLUETOOTH"
+                    ? "Serial COM Port"
+                    : customerPrinterType === "NETWORK_TCP"
+                    ? "Network Address (IP:Port)"
+                    : "Mock Destination"}
+                </label>
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    disabled={customerPrinterType === "MOCK"}
+                    list="customer-printers-list"
+                    value={customerPrinterAddress}
+                    onChange={(e) => setCustomerPrinterAddress(e.target.value)}
+                    placeholder={
+                      customerPrinterType === "USB"
+                        ? "e.g. TVS-E RP 3230"
+                        : customerPrinterType === "BLUETOOTH"
+                        ? "e.g. COM3 or COM3:9600"
+                        : customerPrinterType === "NETWORK_TCP"
+                        ? "192.168.1.200:9100"
+                        : "Virtual Mock Log"
+                    }
+                    className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                  />
+                  {customerPrinterType === "USB" && (
+                    <datalist id="customer-printers-list">
+                      {detectedPrinters.map((p) => (
+                        <option key={p} value={p} />
+                      ))}
+                    </datalist>
+                  )}
+                  {customerPrinterType === "BLUETOOTH" && (
+                    <datalist id="customer-printers-list">
+                      {detectedPorts.map((p) => (
+                        <option key={p} value={p} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -1876,8 +2133,8 @@ export const SettingsPage: React.FC = () => {
                   onChange={(e) => setCustomerPrinterPaperWidth(parseInt(e.target.value))}
                   className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
                 >
-                  <option value={80}>80 mm (Standard Restaurant)</option>
-                  <option value={58}>58 mm (Compact Mobile)</option>
+                  <option value={80}>80 mm (Standard Restaurant 3-inch)</option>
+                  <option value={58}>58 mm (Compact Mobile 2-inch)</option>
                 </select>
               </div>
             </div>
@@ -1900,10 +2157,10 @@ export const SettingsPage: React.FC = () => {
                 type="button"
                 onClick={() => handleTestPrint("KITCHEN")}
                 disabled={testingPrinter === "KITCHEN" || !kitchenPrinterEnabled}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-[#172033] transition-all disabled:opacity-40 cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-all disabled:opacity-40 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5 text-amber-600" />
-                <span>{testingPrinter === "KITCHEN" ? "Testing..." : "Test KOT"}</span>
+                <span>{testingPrinter === "KITCHEN" ? "Testing KOT..." : "Test KOT Print"}</span>
               </button>
             </div>
 
@@ -1927,24 +2184,67 @@ export const SettingsPage: React.FC = () => {
                 <label className="text-xs font-semibold text-[#172033]">Adapter / Type</label>
                 <select
                   value={kitchenPrinterType}
-                  onChange={(e) => setKitchenPrinterType(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setKitchenPrinterType(next);
+                    if (next === "USB" && detectedPrinters.length > 0 && !kitchenPrinterAddress) {
+                      setKitchenPrinterAddress(defaultSysPrinter || detectedPrinters[0]);
+                    } else if (next === "BLUETOOTH" && detectedPorts.length > 0 && !kitchenPrinterAddress) {
+                      setKitchenPrinterAddress(detectedPorts[0]);
+                    }
+                  }}
                   className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
                 >
+                  <option value="USB">USB (Windows Spooler / TVS-E / EPSON)</option>
+                  <option value="BLUETOOTH">BLUETOOTH (Serial COM / RFCOMM)</option>
+                  <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS LAN / WiFi)</option>
                   <option value="MOCK">MOCK (Virtual Log Adapter)</option>
-                  <option value="NETWORK_TCP">NETWORK_TCP (ESC/POS LAN)</option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#172033]">Network Address (IP:Port)</label>
-                <input
-                  type="text"
-                  disabled={kitchenPrinterType === "MOCK"}
-                  value={kitchenPrinterAddress}
-                  onChange={(e) => setKitchenPrinterAddress(e.target.value)}
-                  placeholder="192.168.1.201:9100"
-                  className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
-                />
+                <label className="text-xs font-semibold text-[#172033]">
+                  {kitchenPrinterType === "USB"
+                    ? "Windows Printer Name"
+                    : kitchenPrinterType === "BLUETOOTH"
+                    ? "Serial COM Port"
+                    : kitchenPrinterType === "NETWORK_TCP"
+                    ? "Network Address (IP:Port)"
+                    : "Mock Destination"}
+                </label>
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    disabled={kitchenPrinterType === "MOCK"}
+                    list="kitchen-printers-list"
+                    value={kitchenPrinterAddress}
+                    onChange={(e) => setKitchenPrinterAddress(e.target.value)}
+                    placeholder={
+                      kitchenPrinterType === "USB"
+                        ? "e.g. TVS-E RP 3230"
+                        : kitchenPrinterType === "BLUETOOTH"
+                        ? "e.g. COM3 or COM3:9600"
+                        : kitchenPrinterType === "NETWORK_TCP"
+                        ? "192.168.1.201:9100"
+                        : "Virtual Mock Log"
+                    }
+                    className="w-full h-10 px-3.5 rounded-xl border border-[#E2E8F0] text-xs font-mono text-[#172033] bg-[#F8FAFC] disabled:bg-slate-100 disabled:text-slate-400 focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                  />
+                  {kitchenPrinterType === "USB" && (
+                    <datalist id="kitchen-printers-list">
+                      {detectedPrinters.map((p) => (
+                        <option key={p} value={p} />
+                      ))}
+                    </datalist>
+                  )}
+                  {kitchenPrinterType === "BLUETOOTH" && (
+                    <datalist id="kitchen-printers-list">
+                      {detectedPorts.map((p) => (
+                        <option key={p} value={p} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -1954,11 +2254,30 @@ export const SettingsPage: React.FC = () => {
                   onChange={(e) => setKitchenPrinterPaperWidth(parseInt(e.target.value))}
                   className="w-full h-10 px-3 rounded-xl border border-[#E2E8F0] text-xs font-semibold text-[#172033] bg-[#F8FAFC] focus:bg-white focus:outline-none focus:border-[#2563EB]"
                 >
-                  <option value={80}>80 mm (Standard KOT)</option>
-                  <option value={58}>58 mm (Compact KOT)</option>
+                  <option value={80}>80 mm (Standard KOT 3-inch)</option>
+                  <option value={58}>58 mm (Compact KOT 2-inch)</option>
                 </select>
               </div>
             </div>
+          </div>
+
+          {/* Explicit Save Action Card for Printers Tab */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 bg-white border border-[#E2E8F0] rounded-3xl shadow-card">
+            <div>
+              <p className="text-sm font-bold text-[#172033]">Save Printer Settings</p>
+              <p className="text-xs text-[#64748B]">
+                Applies USB, Bluetooth, and Network thermal printer configurations for all orders and billing receipts.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => handleSaveStoreSettings(e as unknown as React.FormEvent)}
+              disabled={isSaving}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-[#2563EB] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>{isSaving ? "Saving Settings..." : "Save Printer Settings"}</span>
+            </button>
           </div>
         </div>
       )}

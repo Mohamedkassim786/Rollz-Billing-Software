@@ -82,12 +82,12 @@ model Branch {
   tagline          String?           @default("Fresh • Crispy • Handcrafted")
   logoPath         String?
   loginBgPath      String?
-  customerPrinterType        String?   @default("MOCK") // "MOCK" | "NETWORK_TCP"
-  customerPrinterAddress     String?   // e.g. "192.168.1.200:9100"
+  customerPrinterType        String?   @default("MOCK") // "MOCK" | "NETWORK_TCP" | "USB" | "BLUETOOTH"
+  customerPrinterAddress     String?   // e.g. "TVS-E RP 3230", "192.168.1.200:9100", "COM3"
   customerPrinterPaperWidth  Int       @default(80)    // 80 or 58 mm
   customerPrinterEnabled     Boolean   @default(true)
-  kitchenPrinterType         String?   @default("MOCK") // "MOCK" | "NETWORK_TCP"
-  kitchenPrinterAddress      String?   // e.g. "192.168.1.201:9100"
+  kitchenPrinterType         String?   @default("MOCK") // "MOCK" | "NETWORK_TCP" | "USB" | "BLUETOOTH"
+  kitchenPrinterAddress      String?   // e.g. "TVS-E RP 3230", "192.168.1.201:9100", "COM3"
   kitchenPrinterPaperWidth   Int       @default(80)    // 80 or 58 mm
   kitchenPrinterEnabled      Boolean   @default(true)
   upiAutoVerifyEnabled       Boolean   @default(true)

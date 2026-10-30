@@ -122,13 +122,29 @@ export const settingsApi = {
     return res.data;
   },
 
-  testPrint: async (destination: "CUSTOMER_RECEIPT" | "KITCHEN"): Promise<{
+  getPrinterDevices: async (): Promise<{
+    success: boolean;
+    printers: string[];
+    serialPorts: string[];
+    defaultPrinter: string;
+  }> => {
+    const res = await apiClient.get("/settings/printers/devices");
+    return res.data;
+  },
+
+  testPrint: async (params: {
+    destination: "CUSTOMER_RECEIPT" | "KITCHEN";
+    printerType?: string;
+    printerAddress?: string;
+    paperWidth?: number;
+  } | "CUSTOMER_RECEIPT" | "KITCHEN"): Promise<{
     success: boolean;
     message: string;
     destination: string;
     adapterName: string;
   }> => {
-    const res = await apiClient.post("/settings/printers/test", { destination });
+    const payload = typeof params === "string" ? { destination: params } : params;
+    const res = await apiClient.post("/settings/printers/test", payload);
     return res.data;
   },
 

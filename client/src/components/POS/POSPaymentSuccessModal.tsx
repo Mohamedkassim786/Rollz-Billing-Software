@@ -152,10 +152,12 @@ export const POSPaymentSuccessModal: React.FC<POSPaymentSuccessModalProps> = ({
                         ? "bg-emerald-100 text-emerald-800"
                         : kitchenJob?.status === "FAILED"
                         ? "bg-red-100 text-red-800"
-                        : "bg-blue-100 text-blue-800"
+                        : kitchenJob?.status === "PENDING" || kitchenJob?.status === "PRINTING"
+                        ? "bg-blue-100 text-blue-800"
+                        : "bg-slate-100 text-slate-500"
                     }`}
                   >
-                    {kitchenJob?.status || "QUEUED"}
+                    {kitchenJob ? kitchenJob.status : "DISABLED"}
                   </span>
                 </div>
               </div>
@@ -165,7 +167,13 @@ export const POSPaymentSuccessModal: React.FC<POSPaymentSuccessModalProps> = ({
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-900">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Printer simulation reported offline / error</span>
+                    <span>
+                      {kitchenJob?.status === "FAILED" && kitchenJob.lastError
+                        ? `Kitchen: ${kitchenJob.lastError}`
+                        : customerJob?.status === "FAILED" && customerJob.lastError
+                        ? `Customer receipt: ${customerJob.lastError}`
+                        : "Printer offline or connection timeout"}
+                    </span>
                   </div>
                   <button
                     onClick={() => {

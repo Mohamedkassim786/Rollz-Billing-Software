@@ -1,6 +1,8 @@
 import { prisma } from "../../config/prisma";
 import { mockPrinterAdapter } from "./mockPrinterAdapter";
 import { NetworkTcpPrinterAdapter } from "./networkTcpPrinterAdapter";
+import { UsbPrinterAdapter } from "./usbPrinterAdapter";
+import { BluetoothPrinterAdapter } from "./bluetoothPrinterAdapter";
 import { PrintDestinationType, PrintJobStatus, FormattedPrintPayload, IPrinterAdapter } from "./printer.types";
 import { generateCustomerReceiptText } from "./receiptTemplate";
 import { generateKitchenTicketText } from "./kitchenTemplate";
@@ -32,9 +34,11 @@ export class PrinterService {
         select: {
           customerPrinterType: true,
           customerPrinterAddress: true,
+          customerPrinterPaperWidth: true,
           customerPrinterEnabled: true,
           kitchenPrinterType: true,
           kitchenPrinterAddress: true,
+          kitchenPrinterPaperWidth: true,
           kitchenPrinterEnabled: true,
         },
       });
@@ -49,6 +53,22 @@ export class PrinterService {
           };
         }
 
+        if (branch.customerPrinterType === "USB") {
+          return new UsbPrinterAdapter({
+            printerName: branch.customerPrinterAddress || undefined,
+            paperWidth: branch.customerPrinterPaperWidth || 80,
+            openCashDrawerOnReceipt: true,
+          });
+        }
+
+        if (branch.customerPrinterType === "BLUETOOTH") {
+          return new BluetoothPrinterAdapter({
+            address: branch.customerPrinterAddress || undefined,
+            paperWidth: branch.customerPrinterPaperWidth || 80,
+            openCashDrawerOnReceipt: true,
+          });
+        }
+
         if (branch.customerPrinterType === "NETWORK_TCP" && branch.customerPrinterAddress) {
           const [host, portStr] = branch.customerPrinterAddress.split(":");
           const port = portStr ? parseInt(portStr) : 9100;
@@ -60,6 +80,22 @@ export class PrinterService {
             name: "Kitchen Printer (Disabled)",
             print: async () => ({ success: false, error: "Kitchen ticket printer is disabled in settings" }),
           };
+        }
+
+        if (branch.kitchenPrinterType === "USB") {
+          return new UsbPrinterAdapter({
+            printerName: branch.kitchenPrinterAddress || undefined,
+            paperWidth: branch.kitchenPrinterPaperWidth || 80,
+            openCashDrawerOnReceipt: false,
+          });
+        }
+
+        if (branch.kitchenPrinterType === "BLUETOOTH") {
+          return new BluetoothPrinterAdapter({
+            address: branch.kitchenPrinterAddress || undefined,
+            paperWidth: branch.kitchenPrinterPaperWidth || 80,
+            openCashDrawerOnReceipt: false,
+          });
         }
 
         if (branch.kitchenPrinterType === "NETWORK_TCP" && branch.kitchenPrinterAddress) {
@@ -216,14 +252,14 @@ export class PrinterService {
         tableNumber: invoice.order.tableNumber,
         cashierName: params.cashierName || invoice.cashier.displayName,
         createdAt: invoice.createdAt,
-        items: snapshot.items || invoice.order.items,
+        items: snapshot?.items || invoice.order.items,
         subtotal: invoice.subtotal,
         discountTotal: invoice.discountTotal,
         discountReason: invoice.order.discountReason,
         taxTotal: invoice.taxTotal,
         taxRate: invoice.order.taxRate,
         grandTotal: invoice.grandTotal,
-        payments: snapshot.payments || invoice.order.payments,
+        payments: snapshot?.payments || invoice.order.payments,
         receiptHeader: invoice.branch.receiptHeader,
         receiptFooter: invoice.branch.receiptFooter,
         isReprint: true,
@@ -320,7 +356,12 @@ export class PrinterService {
   public async testPrint(
     destination: PrintDestinationType,
     branchId: string,
-    clientDb?: any
+    clientDb?: any,
+    overrideConfig?: {
+      printerType?: string;
+      printerAddress?: string;
+      paperWidth?: number;
+    }
   ): Promise<{ success: boolean; message: string; destination: string; adapterName: string }> {
     const db = clientDb || prisma;
 
@@ -328,22 +369,62 @@ export class PrinterService {
       where: { id: branchId },
     });
 
-    const adapter = await this.resolveAdapterForJob(destination, branchId, db);
+    let adapter: IPrinterAdapter;
+    let paperWidth = 80;
+
+    if (overrideConfig?.printerType) {
+      const pType = overrideConfig.printerType;
+      const addr = overrideConfig.printerAddress || "";
+      paperWidth = overrideConfig.paperWidth || 80;
+
+      if (pType === "USB") {
+        adapter = new UsbPrinterAdapter({
+          printerName: addr,
+          paperWidth,
+          openCashDrawerOnReceipt: destination === "CUSTOMER_RECEIPT",
+        });
+      } else if (pType === "BLUETOOTH") {
+        adapter = new BluetoothPrinterAdapter({
+          address: addr,
+          paperWidth,
+          openCashDrawerOnReceipt: destination === "CUSTOMER_RECEIPT",
+        });
+      } else if (pType === "NETWORK_TCP") {
+        const [host, portStr] = addr.split(":");
+        adapter = new NetworkTcpPrinterAdapter({
+          host: host || "127.0.0.1",
+          port: portStr ? parseInt(portStr) : 9100,
+          openCashDrawerOnReceipt: destination === "CUSTOMER_RECEIPT",
+        });
+      } else {
+        adapter = mockPrinterAdapter;
+      }
+    } else {
+      adapter = await this.resolveAdapterForJob(destination, branchId, db);
+      paperWidth =
+        destination === "CUSTOMER_RECEIPT"
+          ? branch?.customerPrinterPaperWidth || 80
+          : branch?.kitchenPrinterPaperWidth || 80;
+    }
+
     const now = new Date();
+    const isSmall = paperWidth <= 58;
+    const divider = isSmall ? "--------------------------------" : "========================================";
+    const headerTitle = isSmall ? "       ROLLZ POS TEST PRINT     " : "         ROLLZ POS TEST PRINT           ";
 
     const testSlip = [
-      "========================================",
-      "         ROLLZ POS TEST PRINT           ",
-      "========================================",
+      divider,
+      headerTitle,
+      divider,
       `Branch:      ${branch?.name || "Main Branch"}`,
       `Destination: ${destination}`,
       `Adapter:     ${adapter.name}`,
       `Timestamp:   ${now.toLocaleString("en-IN")}`,
-      "----------------------------------------",
+      isSmall ? "--------------------------------" : "----------------------------------------",
       "STATUS: PRINTER IS WORKING PROPERLY",
       "Hardware check completed successfully.",
-      "========================================",
-      "\n\n\n",
+      divider,
+      "\n\n\n\n",
     ].join("\n");
 
     const result = await adapter.print(`test-${Date.now()}`, destination, testSlip);

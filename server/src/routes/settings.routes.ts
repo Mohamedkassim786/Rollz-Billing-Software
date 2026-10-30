@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { authenticate, AuthenticatedRequest, requireRoles } from "../middleware/auth.middleware";
 import { printerService } from "../services/printer/printerService";
+import { discoverPrinterDevices } from "../services/printer/printerDiscovery";
 import { backupService } from "../services/backupService";
 import { PrintDestinationType } from "../services/printer/printer.types";
 import { env } from "../config/env";
@@ -27,11 +28,11 @@ const updateSettingsSchema = z.object({
   tagline: z.string().trim().nullable().optional(),
   logoPath: z.string().trim().nullable().optional(),
   loginBgPath: z.string().trim().nullable().optional(),
-  customerPrinterType: z.enum(["MOCK", "NETWORK_TCP"]).optional(),
+  customerPrinterType: z.enum(["MOCK", "NETWORK_TCP", "USB", "BLUETOOTH"]).optional(),
   customerPrinterAddress: z.string().trim().nullable().optional(),
   customerPrinterPaperWidth: z.coerce.number().int().optional(),
   customerPrinterEnabled: z.boolean().optional(),
-  kitchenPrinterType: z.enum(["MOCK", "NETWORK_TCP"]).optional(),
+  kitchenPrinterType: z.enum(["MOCK", "NETWORK_TCP", "USB", "BLUETOOTH"]).optional(),
   kitchenPrinterAddress: z.string().trim().nullable().optional(),
   kitchenPrinterPaperWidth: z.coerce.number().int().optional(),
   kitchenPrinterEnabled: z.boolean().optional(),
@@ -243,6 +244,26 @@ settingsRouter.delete(
 );
 
 /**
+ * GET /api/settings/printers/devices
+ * Discover available local printers and serial COM ports
+ */
+settingsRouter.get(
+  "/printers/devices",
+  requireRoles([Role.OWNER, Role.MANAGER]),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    try {
+      const devices = await discoverPrinterDevices();
+      res.json({
+        success: true,
+        ...devices,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: { message: err.message || "Failed to discover printer devices" } });
+    }
+  }
+);
+
+/**
  * POST /api/settings/printers/test
  * Send a diagnostic test print to the configured printer
  */
@@ -251,7 +272,7 @@ settingsRouter.post(
   requireRoles([Role.OWNER, Role.MANAGER]),
   async (req: AuthenticatedRequest, res: Response) => {
     const branchId = req.user!.branchId;
-    const destination = (req.body.destination || "CUSTOMER_RECEIPT") as PrintDestinationType;
+    const { destination = "CUSTOMER_RECEIPT", printerType, printerAddress, paperWidth } = req.body;
 
     if (!["CUSTOMER_RECEIPT", "KITCHEN"].includes(destination)) {
       res.status(400).json({ error: { message: "Invalid destination type" } });
@@ -259,7 +280,11 @@ settingsRouter.post(
     }
 
     try {
-      const result = await printerService.testPrint(destination, branchId);
+      const result = await printerService.testPrint(destination as PrintDestinationType, branchId, prisma, {
+        printerType,
+        printerAddress,
+        paperWidth: paperWidth ? Number(paperWidth) : undefined,
+      });
       res.json({
         success: result.success,
         message: result.message,

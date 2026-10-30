@@ -1,5 +1,7 @@
 import net from "net";
 import { IPrinterAdapter, PrintDestinationType, PrintResult } from "./printer.types";
+import { sanitizeThermalText } from "./usbPrinterAdapter";
+import { getReceiptLogoBuffer } from "./logoHelper";
 
 export interface NetworkPrinterOptions {
   host: string;
@@ -76,9 +78,14 @@ export class NetworkTcpPrinterAdapter implements IPrinterAdapter {
       // ESC/POS Command Sequences
       // 1. ESC @ : Initialize printer
       const initCommand = Buffer.from([0x1b, 0x40]);
+      const logoBuffer =
+        destination === "CUSTOMER_RECEIPT"
+          ? getReceiptLogoBuffer(metadata?.logoPath)
+          : Buffer.alloc(0);
 
-      // 2. Text payload in UTF-8 / ASCII
-      const textBuffer = Buffer.from(rawText + "\n\n\n", "utf-8");
+      // 2. Text payload in clean ASCII
+      const cleanText = sanitizeThermalText(rawText);
+      const textBuffer = Buffer.from(cleanText + "\n\n\n", "ascii");
 
       // 3. GS V 0 : Full cut paper command
       const cutCommand = Buffer.from([0x1d, 0x56, 0x00]);
@@ -89,7 +96,7 @@ export class NetworkTcpPrinterAdapter implements IPrinterAdapter {
           ? Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])
           : Buffer.alloc(0);
 
-      const fullPayload = Buffer.concat([initCommand, textBuffer, cutCommand, drawerKick]);
+      const fullPayload = Buffer.concat([initCommand, logoBuffer, textBuffer, cutCommand, drawerKick]);
 
       socket.on("connect", () => {
         socket.write(fullPayload, (err) => {
